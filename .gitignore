@@ -1,0 +1,14 @@
+# Foundry build artifacts
+out/
+cache/
+
+# Env and local overrides
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
