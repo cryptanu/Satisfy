@@ -102,6 +102,8 @@ make clean
   - unit + integration tests
 - `script/anvil_e2e.sh`
   - full local deploy-and-execute scenario
+- `frontend/`
+  - React + Vite UI integrated with `satisfies()` and `beforeSwap()`
 - `docs/MVP_RUNBOOK.md`
   - step-by-step demo flow and expected checkpoints
 - `docs/PRODUCTION_GAPS.md`
