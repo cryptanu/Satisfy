@@ -59,7 +59,29 @@ Run tests:
 forge test --offline
 ```
 
-Run local E2E on Anvil:
+### Deploy to Unichain Sepolia (Primary)
+
+```bash
+cp script/.env.unichain.example .env.unichain
+source .env.unichain
+UNICHAIN_NETWORK=sepolia ./script/deploy_unichain.sh
+```
+
+Unichain targets used by this repo:
+
+- `sepolia` -> chain ID `1301`
+- `mainnet` -> chain ID `130`
+
+### Deploy to Unichain Mainnet
+
+```bash
+source .env.unichain
+UNICHAIN_NETWORK=mainnet ./script/deploy_unichain.sh
+```
+
+### Local Protocol E2E (Anvil)
+
+For local-only protocol simulation:
 
 ```bash
 ./script/anvil_e2e.sh
@@ -91,6 +113,8 @@ Use make targets:
 make build
 make test
 make e2e
+make deploy-unichain-sepolia
+make deploy-unichain-mainnet
 make clean
 ```
 
@@ -102,10 +126,16 @@ make clean
   - unit + integration tests
 - `script/anvil_e2e.sh`
   - full local deploy-and-execute scenario
+- `script/deploy_unichain.sh`
+  - deploy + configure contracts on Unichain Sepolia/Mainnet
+- `script/.env.unichain.example`
+  - template env for Unichain deployments
 - `frontend/`
-  - React + Vite UI integrated with `satisfies()` and `beforeSwap()`
+  - React + Vite UI integrated with `satisfies()` and `beforeSwap()` plus Unichain presets
 - `docs/MVP_RUNBOOK.md`
   - step-by-step demo flow and expected checkpoints
+- `docs/UNICHAIN_DEPLOYMENT.md`
+  - Unichain Sepolia/Mainnet deployment instructions
 - `docs/PRODUCTION_GAPS.md`
   - explicit MVP-to-mainnet hardening checklist
 

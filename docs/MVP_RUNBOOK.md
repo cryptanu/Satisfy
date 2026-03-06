@@ -1,6 +1,6 @@
 # MVP Runbook
 
-This runbook shows a clean local demo path for Satisfy.
+This runbook shows a clean demo path focused on Unichain deployment.
 
 ## 1. Compile
 
@@ -19,39 +19,54 @@ Expected result:
 - all suites pass
 - includes unit and end-to-end Solidity tests
 
-## 3. Run Local Anvil Scenario
+## 3. Deploy to Unichain Sepolia
+
+```bash
+cp script/.env.unichain.example .env.unichain
+source .env.unichain
+UNICHAIN_NETWORK=sepolia ./script/deploy_unichain.sh
+```
+
+Expected checkpoints in output:
+
+- contract addresses for policy engine, adapters, and hook
+- `PolicyId` and `PoolId`
+- generated `deployments/unichain-sepolia.json`
+- frontend env block for direct copy
+
+## 4. Frontend Wiring
+
+```bash
+cp frontend/.env.example frontend/.env.local
+npm --prefix frontend install
+npm --prefix frontend run dev
+```
+
+In the app:
+
+- choose `Unichain Sepolia` mode
+- connect wallet
+- use deployed contract values
+- call `satisfies()` then `beforeSwap`
+
+## 5. Optional Mainnet Deployment
+
+```bash
+source .env.unichain
+UNICHAIN_NETWORK=mainnet ./script/deploy_unichain.sh
+```
+
+## 6. Local-Only Protocol Simulation (Optional)
 
 ```bash
 ./script/anvil_e2e.sh
 ```
 
-Expected checkpoints in output:
-
-- `Verifying satisfies() with valid proofs`
-- `Executing beforeSwap with valid proof bundle`
-- `Checking replay protection (expected revert)`
-- `Rotating epoch and submitting fresh bundle`
-- `Checking policy mismatch with underage self proof`
-- `Scenario complete`
-
-## 4. Optional External Node Usage
-
-If Anvil is already running:
-
-```bash
-RPC_URL=http://127.0.0.1:8545 START_ANVIL=0 ./script/anvil_e2e.sh
-```
-
-## 5. Optional Demo User Override
-
-```bash
-SATISFY_USER=0x000000000000000000000000000000000000BEEF ./script/anvil_e2e.sh
-```
-
-## 6. What to Show During Demo
+## 7. What to Show During Demo
 
 - policy creation with composable predicates
 - credential proof verification through adapters
 - hook-gated execution path
 - replay prevention with nullifiers
 - epoch-based lifecycle control
+- Unichain-native deployment and execution flow

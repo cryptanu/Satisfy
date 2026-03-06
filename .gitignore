@@ -6,6 +6,7 @@ cache/
 .env
 .env.*
 !.env.example
+!script/.env.unichain.example
 frontend/.env.local
 
 # Logs
@@ -14,6 +15,9 @@ frontend/.env.local
 # Frontend artifacts
 frontend/node_modules/
 frontend/dist/
+
+# Deployment artifacts
+deployments/
 
 # macOS
 .DS_Store
