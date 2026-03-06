@@ -1,10 +1,11 @@
 # Satisfy Frontend
 
-Contract-integrated React frontend for the Satisfy protocol.
+Unichain-integrated React frontend for Satisfy.
 
 ## What It Does
 
 - Connect wallet
+- Switch/add Unichain network in wallet
 - Build and edit a `ProofBundle`
 - Call `SatisfyPolicyEngine.satisfies(...)` for policy checks
 - Call `SatisfyHook.beforeSwap(...)` for hook-gated execution
@@ -12,8 +13,8 @@ Contract-integrated React frontend for the Satisfy protocol.
 ## Prerequisites
 
 - Node.js 20+
-- Running chain endpoint (Anvil recommended)
-- Deployed Satisfy contracts
+- Deployed Satisfy contracts (preferably via `script/deploy_unichain.sh`)
+- Wallet with Unichain Sepolia/Mainnet support
 
 ## Setup
 
@@ -23,40 +24,63 @@ npm install
 npm run dev
 ```
 
-Open: `http://localhost:3000`
+## Network Modes
+
+- `unichain-sepolia`
+- `unichain-mainnet`
+- `custom`
+
+Defaults are controlled by `VITE_DEFAULT_NETWORK` and per-network env keys.
 
 ## Environment Variables
 
-- `VITE_RPC_URL`
-- `VITE_CHAIN_ID`
-- `VITE_POLICY_ENGINE_ADDRESS`
-- `VITE_HOOK_ADDRESS`
-- `VITE_POLICY_ID`
-- `VITE_POOL_ID`
-- `VITE_EPOCH`
-- `VITE_USER_ADDRESS`
+Core:
 
-Optional defaults for pre-filling proof fields:
+- `VITE_DEFAULT_NETWORK`
+- `VITE_UNICHAIN_SEPOLIA_RPC_URL`
+- `VITE_UNICHAIN_MAINNET_RPC_URL`
 
-- `VITE_WORLD_ADAPTER_ID`
+Per-network deployment values:
+
+- `VITE_UNICHAIN_SEPOLIA_POLICY_ENGINE_ADDRESS`
+- `VITE_UNICHAIN_SEPOLIA_HOOK_ADDRESS`
+- `VITE_UNICHAIN_SEPOLIA_POLICY_ID`
+- `VITE_UNICHAIN_SEPOLIA_POOL_ID`
+- `VITE_UNICHAIN_SEPOLIA_EPOCH`
+- `VITE_UNICHAIN_SEPOLIA_USER_ADDRESS`
+- `VITE_UNICHAIN_SEPOLIA_WORLD_ADAPTER_ID`
+- `VITE_UNICHAIN_SEPOLIA_SELF_ADAPTER_ID`
+
+- `VITE_UNICHAIN_MAINNET_POLICY_ENGINE_ADDRESS`
+- `VITE_UNICHAIN_MAINNET_HOOK_ADDRESS`
+- `VITE_UNICHAIN_MAINNET_POLICY_ID`
+- `VITE_UNICHAIN_MAINNET_POOL_ID`
+- `VITE_UNICHAIN_MAINNET_EPOCH`
+- `VITE_UNICHAIN_MAINNET_USER_ADDRESS`
+- `VITE_UNICHAIN_MAINNET_WORLD_ADAPTER_ID`
+- `VITE_UNICHAIN_MAINNET_SELF_ADAPTER_ID`
+
+Optional proof defaults:
+
 - `VITE_WORLD_PROOF_PAYLOAD`
-- `VITE_SELF_ADAPTER_ID`
 - `VITE_SELF_PROOF_PAYLOAD`
 - `VITE_NULLIFIER`
 
-## Local Flow with This Repo
+## Recommended Flow
 
-1. Run protocol E2E deployment script from repo root:
+1. Deploy contracts to Unichain:
 
 ```bash
-./script/anvil_e2e.sh
+source ../.env.unichain
+UNICHAIN_NETWORK=sepolia ../script/deploy_unichain.sh
 ```
 
-2. Copy deployed addresses into `frontend/.env.local`.
-3. Start frontend and connect wallet.
-4. Check `satisfies()` then send `beforeSwap`.
+2. Copy emitted frontend env values into `frontend/.env.local`.
+3. Start frontend and choose `Unichain Sepolia` mode.
+4. Connect wallet and click `Switch Wallet Network`.
+5. Run `satisfies()` and then `beforeSwap`.
 
 ## Notes
 
-- `beforeSwap` will revert unless the connected account is an authorized hook caller.
+- `beforeSwap` reverts unless connected account is an authorized hook caller.
 - Proof payloads must be valid ABI-encoded bytes from your credential pipeline.

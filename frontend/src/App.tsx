@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Fingerprint,
   LoaderCircle,
+  Network,
   Plus,
   Send,
   Shield,
@@ -19,13 +20,22 @@ import {
   defineChain,
   http,
   type Address,
+  type EIP1193Provider,
   type Hex,
 } from 'viem';
 import {policyEngineAbi, satisfyHookAbi, type ProofBundleInput} from './lib/contracts';
+import {
+  getChainName,
+  getDefaultNetworkMode,
+  getExplorerBaseUrl,
+  getNetworkPreset,
+  networkModeOptions,
+  type NetworkMode,
+} from './lib/unichain';
 
 declare global {
   interface Window {
-    ethereum?: unknown;
+    ethereum?: EIP1193Provider;
   }
 }
 
@@ -36,18 +46,12 @@ type ProofDraft = {
 
 type StatusTone = 'neutral' | 'success' | 'error';
 
-const env = import.meta.env;
+type BusyAction = 'connect' | 'switch' | 'read' | 'write' | null;
 
-const initialProofs: ProofDraft[] = [
-  {
-    adapterId: env.VITE_WORLD_ADAPTER_ID ?? '',
-    payload: env.VITE_WORLD_PROOF_PAYLOAD ?? '0x',
-  },
-  {
-    adapterId: env.VITE_SELF_ADAPTER_ID ?? '',
-    payload: env.VITE_SELF_PROOF_PAYLOAD ?? '0x',
-  },
-];
+const env = import.meta.env;
+const defaultNetworkMode = getDefaultNetworkMode(env);
+const defaultPreset =
+  defaultNetworkMode === 'custom' ? null : getNetworkPreset(defaultNetworkMode, env);
 
 const CodeBlock = ({code}: {code: string}) => (
   <div className="bg-black/50 border border-white/10 rounded-lg p-4 font-mono text-sm text-gray-300 overflow-x-auto">
@@ -96,32 +100,97 @@ function parseUint(value: string, label: string): bigint {
   return BigInt(trimmed);
 }
 
+function parseChainId(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error('CHAIN_ID must be a positive integer');
+  }
+  return parsed;
+}
+
 export default function App() {
-  const [rpcUrl, setRpcUrl] = useState(env.VITE_RPC_URL ?? 'http://127.0.0.1:8545');
-  const [chainId, setChainId] = useState(env.VITE_CHAIN_ID ?? '31337');
-  const [policyEngineAddress, setPolicyEngineAddress] = useState(env.VITE_POLICY_ENGINE_ADDRESS ?? '');
-  const [hookAddress, setHookAddress] = useState(env.VITE_HOOK_ADDRESS ?? '');
-  const [policyId, setPolicyId] = useState(env.VITE_POLICY_ID ?? '1');
-  const [poolId, setPoolId] = useState(env.VITE_POOL_ID ?? '');
-  const [epoch, setEpoch] = useState(env.VITE_EPOCH ?? '1');
-  const [userAddress, setUserAddress] = useState(env.VITE_USER_ADDRESS ?? '');
-  const [nullifier, setNullifier] = useState<Hex>((env.VITE_NULLIFIER as Hex) ?? randomHex32());
-  const [proofs, setProofs] = useState<ProofDraft[]>(initialProofs);
+  const [networkMode, setNetworkMode] =
+    useState<NetworkMode>(defaultNetworkMode);
+
+  const [rpcUrl, setRpcUrl] = useState(
+    defaultPreset?.rpcUrl ?? env.VITE_RPC_URL ?? 'http://127.0.0.1:8545',
+  );
+  const [chainId, setChainId] = useState(
+    defaultPreset?.chainId ?? env.VITE_CHAIN_ID ?? '31337',
+  );
+
+  const [policyEngineAddress, setPolicyEngineAddress] = useState(
+    defaultPreset?.defaults.policyEngineAddress ?? env.VITE_POLICY_ENGINE_ADDRESS ?? '',
+  );
+  const [hookAddress, setHookAddress] = useState(
+    defaultPreset?.defaults.hookAddress ?? env.VITE_HOOK_ADDRESS ?? '',
+  );
+  const [policyId, setPolicyId] = useState(
+    defaultPreset?.defaults.policyId ?? env.VITE_POLICY_ID ?? '1',
+  );
+  const [poolId, setPoolId] = useState(
+    defaultPreset?.defaults.poolId ?? env.VITE_POOL_ID ?? '',
+  );
+  const [epoch, setEpoch] = useState(
+    defaultPreset?.defaults.epoch ?? env.VITE_EPOCH ?? '1',
+  );
+  const [userAddress, setUserAddress] = useState(
+    defaultPreset?.defaults.userAddress ?? env.VITE_USER_ADDRESS ?? '',
+  );
+
+  const [nullifier, setNullifier] = useState<Hex>(
+    (env.VITE_NULLIFIER as Hex) ?? randomHex32(),
+  );
+  const [proofs, setProofs] = useState<ProofDraft[]>([
+    {
+      adapterId:
+        defaultPreset?.defaults.worldAdapterId ??
+        env.VITE_WORLD_ADAPTER_ID ??
+        '',
+      payload: env.VITE_WORLD_PROOF_PAYLOAD ?? '0x',
+    },
+    {
+      adapterId:
+        defaultPreset?.defaults.selfAdapterId ??
+        env.VITE_SELF_ADAPTER_ID ??
+        '',
+      payload: env.VITE_SELF_PROOF_PAYLOAD ?? '0x',
+    },
+  ]);
 
   const [walletAddress, setWalletAddress] = useState('');
-  const [statusMessage, setStatusMessage] = useState('Ready. Configure contracts and test a proof bundle.');
+  const [statusMessage, setStatusMessage] = useState(
+    'Ready. Configure contracts and test a proof bundle.',
+  );
   const [statusTone, setStatusTone] = useState<StatusTone>('neutral');
   const [txHash, setTxHash] = useState('');
-  const [busyAction, setBusyAction] = useState<'connect' | 'read' | 'write' | null>(null);
+  const [busyAction, setBusyAction] = useState<BusyAction>(null);
+
+  const parsedChainId = useMemo(() => {
+    try {
+      return parseChainId(chainId);
+    } catch {
+      return null;
+    }
+  }, [chainId]);
+
+  const explorerBaseUrl = useMemo(() => {
+    if (!parsedChainId) {
+      return null;
+    }
+    return getExplorerBaseUrl(parsedChainId);
+  }, [parsedChainId]);
+
+  const txExplorerUrl =
+    txHash && explorerBaseUrl
+      ? `${explorerBaseUrl.replace(/\/$/, '')}/tx/${txHash}`
+      : '';
 
   const chain = useMemo(() => {
-    const parsedChainId = Number(chainId);
-    if (!Number.isInteger(parsedChainId) || parsedChainId <= 0) {
-      throw new Error('CHAIN_ID must be a positive integer');
-    }
+    const activeChainId = parseChainId(chainId);
     return defineChain({
-      id: parsedChainId,
-      name: `Satisfy Chain ${parsedChainId}`,
+      id: activeChainId,
+      name: getChainName(activeChainId),
       nativeCurrency: {name: 'Ether', symbol: 'ETH', decimals: 18},
       rpcUrls: {
         default: {http: [rpcUrl]},
@@ -148,15 +217,62 @@ export default function App() {
     setStatusMessage(message);
   };
 
+  const applyNetworkMode = (nextMode: NetworkMode) => {
+    setNetworkMode(nextMode);
+
+    if (nextMode === 'custom') {
+      setSuccess('Switched to custom network mode.');
+      return;
+    }
+
+    const preset = getNetworkPreset(nextMode, env);
+    setRpcUrl(preset.rpcUrl);
+    setChainId(preset.chainId);
+    setPolicyEngineAddress(preset.defaults.policyEngineAddress ?? '');
+    setHookAddress(preset.defaults.hookAddress ?? '');
+    setPolicyId(preset.defaults.policyId ?? '1');
+    setPoolId(preset.defaults.poolId ?? '');
+    setEpoch(preset.defaults.epoch ?? '1');
+
+    if (!walletAddress) {
+      setUserAddress(preset.defaults.userAddress ?? '');
+    }
+
+    setProofs((current) => {
+      const next = [...current];
+      if (next[0]) {
+        next[0] = {
+          ...next[0],
+          adapterId: preset.defaults.worldAdapterId ?? next[0].adapterId,
+        };
+      }
+      if (next[1]) {
+        next[1] = {
+          ...next[1],
+          adapterId: preset.defaults.selfAdapterId ?? next[1].adapterId,
+        };
+      }
+      return next;
+    });
+
+    setSuccess(`Loaded ${preset.label} defaults.`);
+  };
+
   const buildBundle = (): ProofBundleInput => {
     const parsedProofs = proofs
-      .filter((proof) => proof.adapterId.trim() !== '' || proof.payload.trim() !== '')
+      .filter(
+        (proof) => proof.adapterId.trim() !== '' || proof.payload.trim() !== '',
+      )
       .map((proof, index) => {
         if (!proof.adapterId.trim() || !proof.payload.trim()) {
           throw new Error(`Proof ${index + 1} needs both adapterId and payload`);
         }
         return {
-          adapterId: normalizeHex(proof.adapterId, `Proof ${index + 1} adapterId`, 32),
+          adapterId: normalizeHex(
+            proof.adapterId,
+            `Proof ${index + 1} adapterId`,
+            32,
+          ),
           payload: normalizeHex(proof.payload, `Proof ${index + 1} payload`),
         };
       });
@@ -177,9 +293,14 @@ export default function App() {
     setTxHash('');
     try {
       if (!window.ethereum) {
-        throw new Error('No injected wallet found. Open this app in a wallet-enabled browser.');
+        throw new Error(
+          'No injected wallet found. Open this app in a wallet-enabled browser.',
+        );
       }
-      const walletClient = createWalletClient({chain, transport: custom(window.ethereum)});
+      const walletClient = createWalletClient({
+        chain,
+        transport: custom(window.ethereum),
+      });
       const addresses = await walletClient.requestAddresses();
       const connected = addresses[0];
       if (!connected) {
@@ -192,6 +313,68 @@ export default function App() {
       setSuccess(`Wallet connected: ${connected}`);
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to connect wallet');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const switchWalletNetwork = async () => {
+    setBusyAction('switch');
+    setTxHash('');
+
+    try {
+      if (!window.ethereum) {
+        throw new Error('No injected wallet found. Connect a wallet first.');
+      }
+
+      const activeChainId = parseChainId(chainId);
+      const chainIdHex = `0x${activeChainId.toString(16)}` as Hex;
+
+      try {
+        await window.ethereum.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{chainId: chainIdHex}],
+        });
+      } catch (switchError) {
+        const errorWithCode = switchError as {code?: number; message?: string};
+        const shouldAddChain =
+          errorWithCode.code === 4902 ||
+          (errorWithCode.message ?? '').toLowerCase().includes('unrecognized chain');
+
+        if (!shouldAddChain) {
+          throw switchError;
+        }
+
+        const addChainParams: {
+          chainId: Hex;
+          chainName: string;
+          nativeCurrency: {name: string; symbol: string; decimals: number};
+          rpcUrls: string[];
+          blockExplorerUrls?: string[];
+        } = {
+          chainId: chainIdHex,
+          chainName: getChainName(activeChainId),
+          nativeCurrency: {name: 'Ether', symbol: 'ETH', decimals: 18},
+          rpcUrls: [rpcUrl],
+        };
+
+        if (explorerBaseUrl) {
+          addChainParams.blockExplorerUrls = [explorerBaseUrl];
+        }
+
+        await window.ethereum.request({
+          method: 'wallet_addEthereumChain',
+          params: [addChainParams],
+        });
+      }
+
+      setSuccess(`Wallet switched to ${getChainName(activeChainId)}.`);
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to switch wallet network',
+      );
     } finally {
       setBusyAction(null);
     }
@@ -214,7 +397,9 @@ export default function App() {
       });
 
       if (result) {
-        setSuccess('satisfies() returned true. Policy conditions are met for this bundle.');
+        setSuccess(
+          'satisfies() returned true. Policy conditions are met for this bundle.',
+        );
       } else {
         setError('satisfies() returned false. Policy conditions are not met.');
       }
@@ -233,7 +418,10 @@ export default function App() {
         throw new Error('No injected wallet found. Connect a wallet first.');
       }
 
-      const walletClient = createWalletClient({chain, transport: custom(window.ethereum)});
+      const walletClient = createWalletClient({
+        chain,
+        transport: custom(window.ethereum),
+      });
       const addresses = await walletClient.requestAddresses();
       const account = addresses[0];
       if (!account) {
@@ -270,7 +458,9 @@ export default function App() {
   };
 
   const updateProof = (index: number, field: keyof ProofDraft, value: string) => {
-    setProofs((current) => current.map((proof, i) => (i === index ? {...proof, [field]: value} : proof)));
+    setProofs((current) =>
+      current.map((proof, i) => (i === index ? {...proof, [field]: value} : proof)),
+    );
   };
 
   return (
@@ -288,8 +478,14 @@ export default function App() {
             disabled={busyAction === 'connect'}
             className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-md font-mono text-sm transition-all flex items-center gap-2 disabled:opacity-60"
           >
-            {busyAction === 'connect' ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Wallet className="w-4 h-4" />}
-            {walletAddress ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` : 'Connect'}
+            {busyAction === 'connect' ? (
+              <LoaderCircle className="w-4 h-4 animate-spin" />
+            ) : (
+              <Wallet className="w-4 h-4" />
+            )}
+            {walletAddress
+              ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
+              : 'Connect'}
           </button>
         </div>
       </nav>
@@ -297,24 +493,35 @@ export default function App() {
       <main className="relative z-10">
         <section className="pt-24 pb-14 px-6">
           <div className="max-w-7xl mx-auto">
-            <motion.div initial={{opacity: 0, y: 16}} animate={{opacity: 1, y: 0}} transition={{duration: 0.6}}>
+            <motion.div
+              initial={{opacity: 0, y: 16}}
+              animate={{opacity: 1, y: 0}}
+              transition={{duration: 0.6}}
+            >
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[var(--color-neon)]/10 border border-[var(--color-neon)]/20 text-[var(--color-neon)] font-mono text-xs mb-8">
                 <span className="w-2 h-2 rounded-full bg-[var(--color-neon)] animate-pulse" />
-                Credential-aware liquidity hooks
+                Unichain-ready credential-aware liquidity hooks
               </div>
               <h1 className="font-display text-5xl md:text-7xl font-bold leading-[0.95] tracking-tighter mb-6 max-w-4xl">
-                Policy-gated markets with real contract calls.
+                Policy-gated markets with live Unichain integration.
               </h1>
               <p className="text-xl text-gray-400 max-w-3xl mb-8">
-                This frontend is now wired to <code>SatisfyPolicyEngine.satisfies</code> and <code>SatisfyHook.beforeSwap</code>. Configure
-                addresses, provide a proof bundle, and execute directly from your wallet.
+                Frontend is wired to <code>SatisfyPolicyEngine.satisfies</code> and{' '}
+                <code>SatisfyHook.beforeSwap</code>, with built-in Unichain network presets and
+                wallet network switching.
               </p>
               <div className="flex flex-wrap gap-3">
-                <a href="#console" className="px-6 py-3 bg-[var(--color-neon)] text-black font-bold rounded-none hover:bg-[#00cc76] transition-colors inline-flex items-center gap-2">
+                <a
+                  href="#console"
+                  className="px-6 py-3 bg-[var(--color-neon)] text-black font-bold rounded-none hover:bg-[#00cc76] transition-colors inline-flex items-center gap-2"
+                >
                   Open Contract Console
                   <ArrowRight className="w-4 h-4" />
                 </a>
-                <a href="#architecture" className="px-6 py-3 border border-white/20 hover:border-white/40 font-mono text-sm transition-colors inline-flex items-center gap-2">
+                <a
+                  href="#architecture"
+                  className="px-6 py-3 border border-white/20 hover:border-white/40 font-mono text-sm transition-colors inline-flex items-center gap-2"
+                >
                   <Terminal className="w-4 h-4" />
                   Integration Flow
                 </a>
@@ -328,44 +535,110 @@ export default function App() {
             <div className="mb-8">
               <h2 className="font-display text-4xl font-bold mb-3">Live Contract Console</h2>
               <p className="text-gray-400">
-                Use your deployed addresses from <code>script/anvil_e2e.sh</code> or your target chain deployment.
+                Select Unichain network preset, connect wallet, test proofs with
+                <code> satisfies()</code>, then execute <code>beforeSwap</code>.
               </p>
             </div>
 
             <div className="grid xl:grid-cols-3 gap-6">
               <div className="xl:col-span-2 border border-white/10 bg-white/[0.02] p-6 space-y-6">
+                <div className="grid md:grid-cols-[1fr_auto] gap-4">
+                  <label className="text-sm font-mono text-gray-400">
+                    Network mode
+                    <select
+                      value={networkMode}
+                      onChange={(event) => applyNetworkMode(event.target.value as NetworkMode)}
+                      className="mt-2 w-full px-3 py-2 bg-black/40 border border-white/15 focus:border-[var(--color-neon)] outline-none"
+                    >
+                      {networkModeOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <button
+                    onClick={switchWalletNetwork}
+                    disabled={busyAction !== null}
+                    className="self-end px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/15 font-mono text-sm inline-flex items-center gap-2 disabled:opacity-60"
+                  >
+                    {busyAction === 'switch' ? (
+                      <LoaderCircle className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Network className="w-4 h-4" />
+                    )}
+                    Switch Wallet Network
+                  </button>
+                </div>
+
                 <div className="grid md:grid-cols-2 gap-4">
                   <label className="text-sm font-mono text-gray-400">
                     RPC URL
-                    <input value={rpcUrl} onChange={(event) => setRpcUrl(event.target.value)} className="mt-2 w-full px-3 py-2 bg-black/40 border border-white/15 focus:border-[var(--color-neon)] outline-none" />
+                    <input
+                      value={rpcUrl}
+                      onChange={(event) => setRpcUrl(event.target.value)}
+                      disabled={networkMode !== 'custom'}
+                      className="mt-2 w-full px-3 py-2 bg-black/40 border border-white/15 disabled:opacity-60 focus:border-[var(--color-neon)] outline-none"
+                    />
                   </label>
                   <label className="text-sm font-mono text-gray-400">
                     Chain ID
-                    <input value={chainId} onChange={(event) => setChainId(event.target.value)} className="mt-2 w-full px-3 py-2 bg-black/40 border border-white/15 focus:border-[var(--color-neon)] outline-none" />
+                    <input
+                      value={chainId}
+                      onChange={(event) => setChainId(event.target.value)}
+                      disabled={networkMode !== 'custom'}
+                      className="mt-2 w-full px-3 py-2 bg-black/40 border border-white/15 disabled:opacity-60 focus:border-[var(--color-neon)] outline-none"
+                    />
                   </label>
                   <label className="text-sm font-mono text-gray-400">
                     PolicyEngine address
-                    <input value={policyEngineAddress} onChange={(event) => setPolicyEngineAddress(event.target.value)} className="mt-2 w-full px-3 py-2 bg-black/40 border border-white/15 focus:border-[var(--color-neon)] outline-none" />
+                    <input
+                      value={policyEngineAddress}
+                      onChange={(event) => setPolicyEngineAddress(event.target.value)}
+                      className="mt-2 w-full px-3 py-2 bg-black/40 border border-white/15 focus:border-[var(--color-neon)] outline-none"
+                    />
                   </label>
                   <label className="text-sm font-mono text-gray-400">
                     Hook address
-                    <input value={hookAddress} onChange={(event) => setHookAddress(event.target.value)} className="mt-2 w-full px-3 py-2 bg-black/40 border border-white/15 focus:border-[var(--color-neon)] outline-none" />
+                    <input
+                      value={hookAddress}
+                      onChange={(event) => setHookAddress(event.target.value)}
+                      className="mt-2 w-full px-3 py-2 bg-black/40 border border-white/15 focus:border-[var(--color-neon)] outline-none"
+                    />
                   </label>
                   <label className="text-sm font-mono text-gray-400">
                     Policy ID
-                    <input value={policyId} onChange={(event) => setPolicyId(event.target.value)} className="mt-2 w-full px-3 py-2 bg-black/40 border border-white/15 focus:border-[var(--color-neon)] outline-none" />
+                    <input
+                      value={policyId}
+                      onChange={(event) => setPolicyId(event.target.value)}
+                      className="mt-2 w-full px-3 py-2 bg-black/40 border border-white/15 focus:border-[var(--color-neon)] outline-none"
+                    />
                   </label>
                   <label className="text-sm font-mono text-gray-400">
                     Pool ID (bytes32)
-                    <input value={poolId} onChange={(event) => setPoolId(event.target.value)} className="mt-2 w-full px-3 py-2 bg-black/40 border border-white/15 focus:border-[var(--color-neon)] outline-none" />
+                    <input
+                      value={poolId}
+                      onChange={(event) => setPoolId(event.target.value)}
+                      className="mt-2 w-full px-3 py-2 bg-black/40 border border-white/15 focus:border-[var(--color-neon)] outline-none"
+                    />
                   </label>
                   <label className="text-sm font-mono text-gray-400">
                     Sender/User address
-                    <input value={userAddress} onChange={(event) => setUserAddress(event.target.value)} placeholder={walletAddress || '0x...'} className="mt-2 w-full px-3 py-2 bg-black/40 border border-white/15 focus:border-[var(--color-neon)] outline-none" />
+                    <input
+                      value={userAddress}
+                      onChange={(event) => setUserAddress(event.target.value)}
+                      placeholder={walletAddress || '0x...'}
+                      className="mt-2 w-full px-3 py-2 bg-black/40 border border-white/15 focus:border-[var(--color-neon)] outline-none"
+                    />
                   </label>
                   <label className="text-sm font-mono text-gray-400">
                     Epoch
-                    <input value={epoch} onChange={(event) => setEpoch(event.target.value)} className="mt-2 w-full px-3 py-2 bg-black/40 border border-white/15 focus:border-[var(--color-neon)] outline-none" />
+                    <input
+                      value={epoch}
+                      onChange={(event) => setEpoch(event.target.value)}
+                      className="mt-2 w-full px-3 py-2 bg-black/40 border border-white/15 focus:border-[var(--color-neon)] outline-none"
+                    />
                   </label>
                 </div>
 
@@ -373,7 +646,12 @@ export default function App() {
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="font-display text-xl">Proof Bundle</h3>
                     <button
-                      onClick={() => setProofs((current) => [...current, {adapterId: '', payload: '0x'}])}
+                      onClick={() =>
+                        setProofs((current) => [
+                          ...current,
+                          {adapterId: '', payload: '0x'},
+                        ])
+                      }
                       className="px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/15 text-sm font-mono flex items-center gap-2"
                     >
                       <Plus className="w-4 h-4" />
@@ -385,10 +663,16 @@ export default function App() {
                     {proofs.map((proof, index) => (
                       <div key={index} className="p-4 border border-white/10 bg-black/20">
                         <div className="flex items-center justify-between mb-3">
-                          <span className="font-mono text-xs text-gray-400">Proof #{index + 1}</span>
+                          <span className="font-mono text-xs text-gray-400">
+                            Proof #{index + 1}
+                          </span>
                           {proofs.length > 1 && (
                             <button
-                              onClick={() => setProofs((current) => current.filter((_, i) => i !== index))}
+                              onClick={() =>
+                                setProofs((current) =>
+                                  current.filter((_, i) => i !== index),
+                                )
+                              }
                               className="text-gray-400 hover:text-red-400"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -400,7 +684,9 @@ export default function App() {
                             adapterId (bytes32)
                             <input
                               value={proof.adapterId}
-                              onChange={(event) => updateProof(index, 'adapterId', event.target.value)}
+                              onChange={(event) =>
+                                updateProof(index, 'adapterId', event.target.value)
+                              }
                               className="mt-2 w-full px-3 py-2 bg-black/40 border border-white/15 focus:border-[var(--color-neon)] outline-none"
                             />
                           </label>
@@ -408,7 +694,9 @@ export default function App() {
                             payload (bytes)
                             <input
                               value={proof.payload}
-                              onChange={(event) => updateProof(index, 'payload', event.target.value)}
+                              onChange={(event) =>
+                                updateProof(index, 'payload', event.target.value)
+                              }
                               className="mt-2 w-full px-3 py-2 bg-black/40 border border-white/15 focus:border-[var(--color-neon)] outline-none"
                             />
                           </label>
@@ -420,9 +708,16 @@ export default function App() {
                   <div className="grid md:grid-cols-[1fr_auto] gap-3 mt-4">
                     <label className="text-sm font-mono text-gray-400">
                       Nullifier (bytes32)
-                      <input value={nullifier} onChange={(event) => setNullifier(event.target.value as Hex)} className="mt-2 w-full px-3 py-2 bg-black/40 border border-white/15 focus:border-[var(--color-neon)] outline-none" />
+                      <input
+                        value={nullifier}
+                        onChange={(event) => setNullifier(event.target.value as Hex)}
+                        className="mt-2 w-full px-3 py-2 bg-black/40 border border-white/15 focus:border-[var(--color-neon)] outline-none"
+                      />
                     </label>
-                    <button onClick={() => setNullifier(randomHex32())} className="self-end px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/15 font-mono text-sm">
+                    <button
+                      onClick={() => setNullifier(randomHex32())}
+                      className="self-end px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/15 font-mono text-sm"
+                    >
                       Randomize
                     </button>
                   </div>
@@ -434,7 +729,11 @@ export default function App() {
                     disabled={busyAction !== null}
                     className="px-5 py-3 bg-white text-black font-bold hover:bg-gray-200 transition-colors disabled:opacity-60 inline-flex items-center gap-2"
                   >
-                    {busyAction === 'read' ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                    {busyAction === 'read' ? (
+                      <LoaderCircle className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="w-4 h-4" />
+                    )}
                     Check satisfies()
                   </button>
                   <button
@@ -442,7 +741,11 @@ export default function App() {
                     disabled={busyAction !== null}
                     className="px-5 py-3 bg-[var(--color-neon)] text-black font-bold hover:bg-[#00cc76] transition-colors disabled:opacity-60 inline-flex items-center gap-2"
                   >
-                    {busyAction === 'write' ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                    {busyAction === 'write' ? (
+                      <LoaderCircle className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
                     Submit beforeSwap
                   </button>
                 </div>
@@ -467,6 +770,16 @@ export default function App() {
                       txHash: {txHash}
                     </p>
                   )}
+                  {txExplorerUrl && (
+                    <a
+                      href={txExplorerUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-2 inline-block text-xs font-mono text-[var(--color-neon)] hover:underline"
+                    >
+                      Open in explorer
+                    </a>
+                  )}
                 </div>
 
                 <div className="border border-white/10 bg-black/30 p-5 space-y-3">
@@ -485,11 +798,13 @@ export default function App() {
 
                 <div className="border border-white/10 bg-black/30 p-5 text-sm text-gray-400">
                   <p className="mb-2">
-                    <span className="text-[var(--color-neon)] font-mono">Tip:</span> use your values from <code>./script/anvil_e2e.sh</code>{' '}
-                    output for quick local verification.
+                    <span className="text-[var(--color-neon)] font-mono">Tip:</span>{' '}
+                    Use deployment output from <code>./script/deploy_unichain.sh</code>{' '}
+                    and copy values into <code>frontend/.env.local</code>.
                   </p>
                   <p>
-                    The connected account must be an authorized hook caller for <code>beforeSwap</code> to succeed.
+                    Connected account must be an authorized hook caller for{' '}
+                    <code>beforeSwap</code> to succeed.
                   </p>
                 </div>
               </aside>
@@ -502,10 +817,16 @@ export default function App() {
             <div>
               <h2 className="font-display text-4xl font-bold mb-5">Integration Flow</h2>
               <div className="space-y-4 text-gray-400">
-                <p>1. Wallet/user submits proof bundle metadata.</p>
-                <p>2. Frontend calls <code>satisfies(policyId, user, bundle)</code> for a dry policy check.</p>
-                <p>3. Frontend sends <code>beforeSwap(poolId, sender, bundle)</code> through wallet signer.</p>
-                <p>4. Hook forwards to policy engine and consumes nullifier on success.</p>
+                <p>1. Select Unichain network preset and switch wallet chain.</p>
+                <p>
+                  2. Frontend calls <code>satisfies(policyId, user, bundle)</code> for a dry policy check.
+                </p>
+                <p>
+                  3. Frontend sends <code>beforeSwap(poolId, sender, bundle)</code> through wallet signer.
+                </p>
+                <p>
+                  4. Hook forwards to policy engine and consumes nullifier on success.
+                </p>
               </div>
             </div>
             <CodeBlock
@@ -522,7 +843,9 @@ bundle.proofs[] = {
 
         <section className="py-24 px-6 text-center border-t border-white/10">
           <Fingerprint className="w-16 h-16 text-[var(--color-neon)] mx-auto mb-8 opacity-60" />
-          <h2 className="font-display text-4xl font-bold mb-4">Minimum disclosure, maximum coordination.</h2>
+          <h2 className="font-display text-4xl font-bold mb-4">
+            Minimum disclosure, maximum coordination.
+          </h2>
           <p className="text-xl text-gray-400 max-w-3xl mx-auto">
             Credential-aware market controls without address-based surveillance.
           </p>
@@ -535,7 +858,7 @@ bundle.proofs[] = {
             <Shield className="w-5 h-5 text-[var(--color-neon)]" />
             <span className="font-display font-bold tracking-tight">Satisfy</span>
           </div>
-          <div>Contract-integrated frontend for Uniswap v4 policy gating.</div>
+          <div>Unichain-integrated frontend for policy-gated liquidity.</div>
         </div>
       </footer>
     </div>
