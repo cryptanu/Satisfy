@@ -7,19 +7,28 @@ It gates participation on verifiable proofs, not wallet identity.
 
 ## Story
 
-A DAO launches liquidity incentives and gets botted within minutes.
-Address-based allowlists fail because wallets are cheap and identities are not.
+A DAO launches a new incentive pool on Unichain Sepolia.
+Within minutes, bots try to farm it with fresh wallets and replayed payloads.
 
-Satisfy flips the question from:
+With Satisfy, the pool is wired to policy, not address lists.
+A real user submits a proof bundle:
 
-- Who are you?
+- World ID proof for personhood (verified on-chain by the World verifier path)
+- Self claim proof via bridged attestation (read from `SelfAttestationRegistry`)
 
-to:
+The hook asks the policy engine in real time.
+If the user satisfies policy for the current epoch, execution proceeds.
+If the proof is stale, replayed, revoked, or out of policy, the transaction fails.
 
-- What can you prove?
+Governance can then evolve the market safely:
 
-Proofs are evaluated against policy at execution time in hook-gated flows.
-If policy is satisfied, the market action executes. Otherwise it reverts.
+- timelocked role-based policy/adapter changes
+- reactive replay-protected automation jobs (epoch rotation, policy windows, emergency pause)
+
+Satisfy turns DeFi coordination into:
+
+- minimum disclosure
+- maximum coordination
 
 ## Production-Hardened Components
 
