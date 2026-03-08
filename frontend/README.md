@@ -1,20 +1,18 @@
 # Satisfy Frontend
 
-Unichain-integrated React frontend for Satisfy.
+React + Vite frontend for Satisfy policy checks and hook execution.
 
-## What It Does
+## Features
 
 - Connect wallet
-- Switch/add Unichain network in wallet
-- Build and edit a `ProofBundle`
-- Call `SatisfyPolicyEngine.satisfies(...)` for policy checks
-- Call `SatisfyHook.beforeSwap(...)` for hook-gated execution
-
-## Prerequisites
-
-- Node.js 20+
-- Deployed Satisfy contracts (preferably via `script/deploy_unichain.sh`)
-- Wallet with Unichain Sepolia/Mainnet support
+- Switch/add Unichain networks
+- Build `ProofBundle` inputs
+- Call `SatisfyPolicyEngine.satisfies(...)`
+- Call `SatisfyHook.beforeSwap(...)`
+- Validate payload schemas for:
+  - `WorldIdProofV1`
+  - `SelfAttestationProofV1`
+- Optionally auto-load addresses/IDs from deployment artifacts
 
 ## Setup
 
@@ -24,63 +22,33 @@ npm install
 npm run dev
 ```
 
-## Network Modes
+## Deployment Artifact Import
 
-- `unichain-sepolia`
-- `unichain-mainnet`
-- `custom`
+1. Copy deployment artifact into frontend static assets:
 
-Defaults are controlled by `VITE_DEFAULT_NETWORK` and per-network env keys.
+```bash
+../script/sync_frontend_artifact.sh ../deployments/unichain-sepolia.json
+```
 
-## Environment Variables
+2. Set in `.env.local`:
 
-Core:
+```bash
+VITE_UNICHAIN_SEPOLIA_DEPLOYMENT_ARTIFACT=/deployments/unichain-sepolia.json
+```
+
+Then selecting `Unichain Sepolia` mode loads addresses/IDs from the artifact.
+
+## Important Env Keys
 
 - `VITE_DEFAULT_NETWORK`
 - `VITE_UNICHAIN_SEPOLIA_RPC_URL`
 - `VITE_UNICHAIN_MAINNET_RPC_URL`
+- `VITE_UNICHAIN_SEPOLIA_DEPLOYMENT_ARTIFACT`
+- `VITE_UNICHAIN_MAINNET_DEPLOYMENT_ARTIFACT`
 
-Per-network deployment values:
+Per-network manual overrides are still supported via policy engine/hook/pool/policy env keys.
 
-- `VITE_UNICHAIN_SEPOLIA_POLICY_ENGINE_ADDRESS`
-- `VITE_UNICHAIN_SEPOLIA_HOOK_ADDRESS`
-- `VITE_UNICHAIN_SEPOLIA_POLICY_ID`
-- `VITE_UNICHAIN_SEPOLIA_POOL_ID`
-- `VITE_UNICHAIN_SEPOLIA_EPOCH`
-- `VITE_UNICHAIN_SEPOLIA_USER_ADDRESS`
-- `VITE_UNICHAIN_SEPOLIA_WORLD_ADAPTER_ID`
-- `VITE_UNICHAIN_SEPOLIA_SELF_ADAPTER_ID`
+## Runtime Notes
 
-- `VITE_UNICHAIN_MAINNET_POLICY_ENGINE_ADDRESS`
-- `VITE_UNICHAIN_MAINNET_HOOK_ADDRESS`
-- `VITE_UNICHAIN_MAINNET_POLICY_ID`
-- `VITE_UNICHAIN_MAINNET_POOL_ID`
-- `VITE_UNICHAIN_MAINNET_EPOCH`
-- `VITE_UNICHAIN_MAINNET_USER_ADDRESS`
-- `VITE_UNICHAIN_MAINNET_WORLD_ADAPTER_ID`
-- `VITE_UNICHAIN_MAINNET_SELF_ADAPTER_ID`
-
-Optional proof defaults:
-
-- `VITE_WORLD_PROOF_PAYLOAD`
-- `VITE_SELF_PROOF_PAYLOAD`
-- `VITE_NULLIFIER`
-
-## Recommended Flow
-
-1. Deploy contracts to Unichain:
-
-```bash
-source ../.env.unichain
-UNICHAIN_NETWORK=sepolia ../script/deploy_unichain.sh
-```
-
-2. Copy emitted frontend env values into `frontend/.env.local`.
-3. Start frontend and choose `Unichain Sepolia` mode.
-4. Connect wallet and click `Switch Wallet Network`.
-5. Run `satisfies()` and then `beforeSwap`.
-
-## Notes
-
-- `beforeSwap` reverts unless connected account is an authorized hook caller.
-- Proof payloads must be valid ABI-encoded bytes from your credential pipeline.
+- `beforeSwap` requires your connected account to be an authorized hook caller.
+- Proof payloads are ABI-encoded bytes; malformed payloads are rejected by frontend schema checks for known adapter IDs.

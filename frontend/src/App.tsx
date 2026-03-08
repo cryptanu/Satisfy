@@ -1,4 +1,4 @@
-import {useMemo, useState} from 'react';
+import {useEffect, useMemo, useState} from 'react';
 import {motion} from 'motion/react';
 import {
   ArrowRight,
@@ -25,6 +25,10 @@ import {
 } from 'viem';
 import {policyEngineAbi, satisfyHookAbi, type ProofBundleInput} from './lib/contracts';
 import {
+  validateSelfAttestationProofPayload,
+  validateWorldIdProofPayload,
+} from './lib/proofSchemas';
+import {
   getChainName,
   getDefaultNetworkMode,
   getExplorerBaseUrl,
@@ -47,6 +51,16 @@ type ProofDraft = {
 type StatusTone = 'neutral' | 'success' | 'error';
 
 type BusyAction = 'connect' | 'switch' | 'read' | 'write' | null;
+
+type DeploymentArtifact = {
+  policyEngine?: string;
+  hook?: string;
+  policyId?: string | number;
+  poolId?: string;
+  epoch?: string | number;
+  worldAdapterId?: string;
+  selfAdapterId?: string;
+};
 
 const env = import.meta.env;
 const defaultNetworkMode = getDefaultNetworkMode(env);
@@ -106,6 +120,23 @@ function parseChainId(value: string): number {
     throw new Error('CHAIN_ID must be a positive integer');
   }
   return parsed;
+}
+
+function artifactUrlFromEnv(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed === '') {
+    throw new Error('Deployment artifact path is empty');
+  }
+
+  if (trimmed.startsWith('/deployments/')) {
+    return trimmed;
+  }
+
+  if (trimmed.startsWith('/')) {
+    return `/@fs${trimmed}`;
+  }
+
+  return trimmed;
 }
 
 export default function App() {
@@ -186,6 +217,30 @@ export default function App() {
       ? `${explorerBaseUrl.replace(/\/$/, '')}/tx/${txHash}`
       : '';
 
+  const knownWorldAdapterIds = useMemo(() => {
+    const known = [
+      env.VITE_WORLD_ADAPTER_ID,
+      env.VITE_UNICHAIN_SEPOLIA_WORLD_ADAPTER_ID,
+      env.VITE_UNICHAIN_MAINNET_WORLD_ADAPTER_ID,
+      defaultPreset?.defaults.worldAdapterId,
+    ]
+      .filter((value): value is string => Boolean(value))
+      .map((value) => value.toLowerCase());
+    return new Set(known);
+  }, []);
+
+  const knownSelfAdapterIds = useMemo(() => {
+    const known = [
+      env.VITE_SELF_ADAPTER_ID,
+      env.VITE_UNICHAIN_SEPOLIA_SELF_ADAPTER_ID,
+      env.VITE_UNICHAIN_MAINNET_SELF_ADAPTER_ID,
+      defaultPreset?.defaults.selfAdapterId,
+    ]
+      .filter((value): value is string => Boolean(value))
+      .map((value) => value.toLowerCase());
+    return new Set(known);
+  }, []);
+
   const chain = useMemo(() => {
     const activeChainId = parseChainId(chainId);
     return defineChain({
@@ -215,6 +270,63 @@ export default function App() {
   const setError = (message: string) => {
     setStatusTone('error');
     setStatusMessage(message);
+  };
+
+  const applyDeploymentArtifact = async (
+    artifactLocation: string | undefined,
+    label: string,
+  ) => {
+    if (!artifactLocation) {
+      return false;
+    }
+
+    try {
+      const response = await fetch(artifactUrlFromEnv(artifactLocation), {
+        cache: 'no-store',
+      });
+      if (!response.ok) {
+        throw new Error(`Artifact fetch failed (${response.status})`);
+      }
+
+      const artifact = (await response.json()) as DeploymentArtifact;
+
+      if (artifact.policyEngine) {
+        setPolicyEngineAddress(artifact.policyEngine);
+      }
+      if (artifact.hook) {
+        setHookAddress(artifact.hook);
+      }
+      if (artifact.policyId !== undefined) {
+        setPolicyId(String(artifact.policyId));
+      }
+      if (artifact.poolId) {
+        setPoolId(artifact.poolId);
+      }
+      if (artifact.epoch !== undefined) {
+        setEpoch(String(artifact.epoch));
+      }
+
+      setProofs((current) => {
+        const next = [...current];
+        if (next[0] && artifact.worldAdapterId) {
+          next[0] = {...next[0], adapterId: artifact.worldAdapterId};
+        }
+        if (next[1] && artifact.selfAdapterId) {
+          next[1] = {...next[1], adapterId: artifact.selfAdapterId};
+        }
+        return next;
+      });
+
+      setSuccess(`Loaded ${label} defaults from deployment artifact.`);
+      return true;
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? `Failed to load deployment artifact: ${error.message}`
+          : 'Failed to load deployment artifact',
+      );
+      return false;
+    }
   };
 
   const applyNetworkMode = (nextMode: NetworkMode) => {
@@ -255,8 +367,26 @@ export default function App() {
       return next;
     });
 
-    setSuccess(`Loaded ${preset.label} defaults.`);
+    void applyDeploymentArtifact(
+      preset.defaults.deploymentArtifact,
+      preset.label,
+    ).then((loaded) => {
+      if (!loaded) {
+        setSuccess(`Loaded ${preset.label} defaults.`);
+      }
+    });
   };
+
+  useEffect(() => {
+    if (!defaultPreset?.defaults.deploymentArtifact) {
+      return;
+    }
+
+    void applyDeploymentArtifact(
+      defaultPreset.defaults.deploymentArtifact,
+      defaultPreset.label,
+    );
+  }, []);
 
   const buildBundle = (): ProofBundleInput => {
     const parsedProofs = proofs
@@ -281,8 +411,20 @@ export default function App() {
       throw new Error('At least one proof is required');
     }
 
+    const validatedProofs = parsedProofs.map((proof, index) => {
+      const normalizedAdapter = proof.adapterId.toLowerCase();
+
+      if (knownWorldAdapterIds.has(normalizedAdapter)) {
+        validateWorldIdProofPayload(proof.payload);
+      } else if (knownSelfAdapterIds.has(normalizedAdapter)) {
+        validateSelfAttestationProofPayload(proof.payload);
+      }
+
+      return proof;
+    });
+
     return {
-      proofs: parsedProofs,
+      proofs: validatedProofs,
       nullifier: normalizeHex(nullifier, 'Nullifier', 32),
       epoch: parseUint(epoch, 'Epoch'),
     };

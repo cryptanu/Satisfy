@@ -15,6 +15,7 @@ type NetworkDefaults = {
   userAddress?: string;
   worldAdapterId?: string;
   selfAdapterId?: string;
+  deploymentArtifact?: string;
 };
 
 export type NetworkPreset = {
@@ -56,6 +57,7 @@ export function getNetworkPreset(mode: Exclude<NetworkMode, 'custom'>, env: Impo
         userAddress: env.VITE_UNICHAIN_MAINNET_USER_ADDRESS,
         worldAdapterId: env.VITE_UNICHAIN_MAINNET_WORLD_ADAPTER_ID,
         selfAdapterId: env.VITE_UNICHAIN_MAINNET_SELF_ADAPTER_ID,
+        deploymentArtifact: env.VITE_UNICHAIN_MAINNET_DEPLOYMENT_ARTIFACT,
       },
     };
   }
@@ -74,6 +76,7 @@ export function getNetworkPreset(mode: Exclude<NetworkMode, 'custom'>, env: Impo
       userAddress: env.VITE_UNICHAIN_SEPOLIA_USER_ADDRESS,
       worldAdapterId: env.VITE_UNICHAIN_SEPOLIA_WORLD_ADAPTER_ID,
       selfAdapterId: env.VITE_UNICHAIN_SEPOLIA_SELF_ADAPTER_ID,
+      deploymentArtifact: env.VITE_UNICHAIN_SEPOLIA_DEPLOYMENT_ARTIFACT,
     },
   };
 }
