@@ -1,4 +1,4 @@
-.PHONY: build test e2e e2e-external deploy-unichain-sepolia deploy-unichain-mainnet unichain-smoke relay-self-mock sync-frontend-artifact ci-real-data frontend-install frontend-dev frontend-build fmt clean
+.PHONY: build test e2e e2e-external deploy-unichain-sepolia deploy-unichain-mainnet unichain-smoke relay-self-mock sync-frontend-artifact ci-real-data ci-unichain-smoke build-realdata-fixture frontend-install frontend-dev frontend-build fmt clean
 
 build:
 	forge build --offline
@@ -29,6 +29,12 @@ sync-frontend-artifact:
 
 ci-real-data:
 	./script/ci_real_data_replay.sh
+
+ci-unichain-smoke:
+	./script/ci_unichain_smoke.sh
+
+build-realdata-fixture:
+	./script/build_realdata_fixture.sh
 
 frontend-install:
 	npm --prefix frontend install

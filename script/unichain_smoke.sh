@@ -38,7 +38,7 @@ ROLE_ADMIN_EXPECTED="$(jq -r '.governance.roleAdmin' "$DEPLOYMENT_FILE")"
 TIMELOCK_PROPOSER="$(jq -r '.governance.timelock.proposer' "$DEPLOYMENT_FILE")"
 TIMELOCK_EXECUTOR="$(jq -r '.governance.timelock.executor' "$DEPLOYMENT_FILE")"
 
-USER="${USER:-${SATISFY_USER:-}}"
+SMOKE_USER="${SMOKE_USER:-${SATISFY_USER:-}}"
 WORLD_PROOF_PAYLOAD="${WORLD_PROOF_PAYLOAD:-}"
 SELF_PROOF_PAYLOAD="${SELF_PROOF_PAYLOAD:-}"
 NULLIFIER="${NULLIFIER:-$(cast keccak "smoke-nullifier-$(date +%s)")}" 
@@ -122,12 +122,12 @@ if [[ -n "$SELF_ATTESTATION_PAYLOAD" || -n "$SELF_ATTESTATION_SIGNATURE" ]]; the
     --private-key "$RELAYER_PK" >/dev/null
 fi
 
-if [[ -n "$USER" && -n "$WORLD_PROOF_PAYLOAD" && -n "$SELF_PROOF_PAYLOAD" ]]; then
+if [[ -n "$SMOKE_USER" && -n "$WORLD_PROOF_PAYLOAD" && -n "$SELF_PROOF_PAYLOAD" ]]; then
   PROOFS="[(${WORLD_ADAPTER_ID},${WORLD_PROOF_PAYLOAD}),(${SELF_ADAPTER_ID},${SELF_PROOF_PAYLOAD})]"
   BUNDLE="(${PROOFS},${NULLIFIER},${EPOCH})"
 
   log "Calling satisfies() with fixture bundle"
-  SATISFIED=$(call_view "$ENGINE" "satisfies(uint256,address,((bytes32,bytes)[],bytes32,uint64))(bool)" "$POLICY_ID" "$USER" "$BUNDLE")
+  SATISFIED=$(call_view "$ENGINE" "satisfies(uint256,address,((bytes32,bytes)[],bytes32,uint64))(bool)" "$POLICY_ID" "$SMOKE_USER" "$BUNDLE")
 
   if [[ "$EXPECT_SATISFIES" == "true" && "$SATISFIED" != "true" ]]; then
     echo "satisfies() expected true but got: $SATISFIED" >&2
@@ -141,7 +141,7 @@ if [[ -n "$USER" && -n "$WORLD_PROOF_PAYLOAD" && -n "$SELF_PROOF_PAYLOAD" ]]; th
 
   log "satisfies() => $SATISFIED"
 else
-  log "Skipped satisfies() check. Set USER, WORLD_PROOF_PAYLOAD, and SELF_PROOF_PAYLOAD to enable it."
+  log "Skipped satisfies() check. Set SMOKE_USER, WORLD_PROOF_PAYLOAD, and SELF_PROOF_PAYLOAD to enable it."
 fi
 
 log "Smoke checks passed"

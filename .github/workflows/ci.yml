@@ -39,6 +39,7 @@ jobs:
 
   real-data-replay:
     runs-on: ubuntu-latest
+    if: ${{ secrets.REALDATA_FIXTURE_JSON_B64 != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: foundry-rs/foundry-toolchain@v1
@@ -46,3 +47,22 @@ jobs:
         env:
           REALDATA_FIXTURE_JSON_B64: ${{ secrets.REALDATA_FIXTURE_JSON_B64 }}
         run: ./script/ci_real_data_replay.sh
+
+  unichain-smoke:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.UNICHAIN_SMOKE_DEPLOYMENT_B64 != '' && secrets.UNICHAIN_SMOKE_RPC_URL != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+      - name: Run Unichain Sepolia smoke checks
+        env:
+          UNICHAIN_SMOKE_DEPLOYMENT_B64: ${{ secrets.UNICHAIN_SMOKE_DEPLOYMENT_B64 }}
+          UNICHAIN_SMOKE_RPC_URL: ${{ secrets.UNICHAIN_SMOKE_RPC_URL }}
+          UNICHAIN_SMOKE_USER: ${{ secrets.UNICHAIN_SMOKE_USER }}
+          UNICHAIN_SMOKE_WORLD_PROOF_PAYLOAD: ${{ secrets.UNICHAIN_SMOKE_WORLD_PROOF_PAYLOAD }}
+          UNICHAIN_SMOKE_SELF_ATTESTATION_PAYLOAD: ${{ secrets.UNICHAIN_SMOKE_SELF_ATTESTATION_PAYLOAD }}
+          UNICHAIN_SMOKE_SELF_ATTESTATION_SIGNATURE: ${{ secrets.UNICHAIN_SMOKE_SELF_ATTESTATION_SIGNATURE }}
+          UNICHAIN_SMOKE_SELF_PROOF_PAYLOAD: ${{ secrets.UNICHAIN_SMOKE_SELF_PROOF_PAYLOAD }}
+          UNICHAIN_SMOKE_RELAYER_PK: ${{ secrets.UNICHAIN_SMOKE_RELAYER_PK }}
+          UNICHAIN_SMOKE_EXPECT_SATISFIES: ${{ secrets.UNICHAIN_SMOKE_EXPECT_SATISFIES }}
+        run: ./script/ci_unichain_smoke.sh

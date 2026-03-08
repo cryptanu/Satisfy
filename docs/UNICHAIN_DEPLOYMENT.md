@@ -24,6 +24,7 @@ Set at minimum:
 
 Governance/timelock controls:
 
+- `SAFE_ADDRESS` (optional default for governance actor addresses)
 - `TIMELOCK_MIN_DELAY`
 - `TIMELOCK_ADMIN`
 - `TIMELOCK_PROPOSER`
@@ -97,11 +98,12 @@ Run ownership/role assertions from the deployment artifact:
 
 To replay fixture data as part of smoke:
 
-- provide `USER`, `WORLD_PROOF_PAYLOAD`, `SELF_PROOF_PAYLOAD`
+- provide `SMOKE_USER`, `WORLD_PROOF_PAYLOAD`, `SELF_PROOF_PAYLOAD`
 - optionally submit attestation first with:
   - `SELF_ATTESTATION_PAYLOAD`
   - `SELF_ATTESTATION_SIGNATURE`
   - `RELAYER_PK`
+
 ## 7. Troubleshooting
 
 ### `DEPLOYER_PK is required`
