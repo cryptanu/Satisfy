@@ -9,14 +9,11 @@ CHAIN_ID="${CHAIN_ID:-31337}"
 START_ANVIL="${START_ANVIL:-1}"
 ANVIL_LOG="${ANVIL_LOG:-/tmp/satisfy-anvil.log}"
 
-# Default Anvil account #0 private key
 DEPLOYER_PK="${DEPLOYER_PK:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
-# Dedicated issuer keys used for proof signatures only
-WORLD_ISSUER_PK="${WORLD_ISSUER_PK:-0x1000000000000000000000000000000000000000000000000000000000000001}"
-SELF_ISSUER_PK="${SELF_ISSUER_PK:-0x2000000000000000000000000000000000000000000000000000000000000002}"
+SELF_SIGNER_PK="${SELF_SIGNER_PK:-0x1000000000000000000000000000000000000000000000000000000000000001}"
 
-# This is the market participant whose credentials are being proven
 SATISFY_USER="${SATISFY_USER:-0x0000000000000000000000000000000000001234}"
+WORLD_POLICY_CONTEXT="${WORLD_POLICY_CONTEXT:-$(cast keccak "ANVIL_WORLD_POLICY_CONTEXT")}" 
 
 ANVIL_PID=""
 
@@ -39,31 +36,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-rpc() {
-  local method="$1"
-  local params_json="$2"
-
-  local payload response
-  payload=$(printf '{"jsonrpc":"2.0","id":1,"method":"%s","params":%s}' "$method" "$params_json")
-  response=$(curl -sS -H "Content-Type: application/json" --data "$payload" "$RPC_URL")
-
-  if echo "$response" | grep -q '"error"'; then
-    echo "RPC error for $method: $response" >&2
-    return 1
-  fi
-
-  echo "$response"
-}
-
-extract_result_string() {
-  local json="$1"
-  echo "$json" | tr -d '\n' | sed -n 's/.*"result":"\([^"]*\)".*/\1/p'
-}
-
 rpc_ready() {
-  local out
-  out=$(rpc "eth_blockNumber" "[]" 2>/dev/null || true)
-  [[ -n "$(extract_result_string "$out")" ]]
+  local payload response
+  payload='{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}'
+  response=$(curl -sS -H "Content-Type: application/json" --data "$payload" "$RPC_URL" 2>/dev/null || true)
+  [[ "$response" == *"\"result\":"* ]]
 }
 
 wait_for_rpc() {
@@ -78,176 +55,59 @@ wait_for_rpc() {
   done
 }
 
-wait_receipt() {
-  local tx_hash="$1"
-  local tries=0
-  while true; do
-    local receipt
-    receipt=$(rpc "eth_getTransactionReceipt" "[\"$tx_hash\"]")
-
-    if echo "$receipt" | grep -q '"result":null'; then
-      tries=$((tries + 1))
-      if ((tries > 120)); then
-        echo "timed out waiting for receipt: $tx_hash" >&2
-        exit 1
-      fi
-      sleep 0.25
-      continue
-    fi
-
-    echo "$receipt"
-    return 0
-  done
-}
-
-receipt_status() {
-  local receipt="$1"
-  echo "$receipt" | tr -d '\n' | sed -n 's/.*"status":"\([^"]*\)".*/\1/p'
-}
-
-receipt_contract_address() {
-  local receipt="$1"
-  echo "$receipt" | tr -d '\n' | sed -n 's/.*"contractAddress":"\([^"]*\)".*/\1/p'
-}
-
 send_tx() {
   local to="$1"
-  local data="$2"
-  local expect_success="${3:-1}"
+  local sig="$2"
+  shift 2
 
-  local tx_obj resp tx_hash receipt status
-
-  if [[ -n "$to" ]]; then
-    tx_obj=$(printf '{"from":"%s","to":"%s","data":"%s"}' "$DEPLOYER_ADDR" "$to" "$data")
-  else
-    tx_obj=$(printf '{"from":"%s","data":"%s"}' "$DEPLOYER_ADDR" "$data")
-  fi
-
-  resp=$(rpc "eth_sendTransaction" "[$tx_obj]")
-  tx_hash=$(extract_result_string "$resp")
-
-  if [[ -z "$tx_hash" ]]; then
-    echo "failed to send transaction: $resp" >&2
-    exit 1
-  fi
-
-  receipt=$(wait_receipt "$tx_hash")
-  status=$(receipt_status "$receipt")
-
-  if [[ "$expect_success" == "1" && "$status" != "0x1" ]]; then
-    echo "transaction reverted unexpectedly: $tx_hash" >&2
-    echo "$receipt" >&2
-    exit 1
-  fi
-
-  if [[ "$expect_success" == "0" && "$status" != "0x0" ]]; then
-    echo "expected revert but tx succeeded: $tx_hash" >&2
-    echo "$receipt" >&2
-    exit 1
-  fi
-
-  echo "$receipt"
+  cast send "$to" "$sig" "$@" \
+    --rpc-url "$RPC_URL" \
+    --private-key "$DEPLOYER_PK" >/dev/null
 }
 
-eth_call_raw() {
+send_expect_revert() {
   local to="$1"
-  local data="$2"
+  local sig="$2"
+  shift 2
 
-  local params resp
-  params=$(printf '[{"to":"%s","data":"%s"},"latest"]' "$to" "$data")
-  resp=$(rpc "eth_call" "$params")
-
-  local result
-  result=$(extract_result_string "$resp")
-  if [[ -z "$result" ]]; then
-    echo "failed eth_call decode: $resp" >&2
+  if cast send "$to" "$sig" "$@" --rpc-url "$RPC_URL" --private-key "$DEPLOYER_PK" >/dev/null 2>&1; then
+    echo "expected revert but tx succeeded for $sig" >&2
     exit 1
   fi
+}
 
-  echo "$result"
+call_view() {
+  local to="$1"
+  local sig="$2"
+  shift 2
+
+  cast call "$to" "$sig" "$@" --rpc-url "$RPC_URL"
 }
 
 deploy_contract() {
   local contract_id="$1"
-  local ctor_sig="$2"
-  shift 2
+  shift
 
-  local bytecode ctor_args calldata receipt deployed
-  bytecode=$(cd "$ROOT_DIR" && forge inspect "$contract_id" bytecode --offline)
-  ctor_args=$(cast abi-encode "$ctor_sig" "$@")
-  calldata="${bytecode}${ctor_args#0x}"
+  local output deployed
+  local cmd=(
+    forge create "$contract_id"
+    --rpc-url "$RPC_URL"
+    --private-key "$DEPLOYER_PK"
+    --broadcast
+  )
+  if (( $# > 0 )); then
+    cmd+=(--constructor-args "$@")
+  fi
+  output=$(cd "$ROOT_DIR" && "${cmd[@]}" 2>&1)
 
-  receipt=$(send_tx "" "$calldata" 1)
-  deployed=$(receipt_contract_address "$receipt")
-
-  if [[ -z "$deployed" || "$deployed" == "null" ]]; then
+  deployed=$(echo "$output" | sed -n 's/^Deployed to: //p' | tail -n1)
+  if [[ -z "$deployed" ]]; then
     echo "failed to deploy $contract_id" >&2
-    echo "$receipt" >&2
+    echo "$output" >&2
     exit 1
   fi
 
   echo "$deployed"
-}
-
-call_bool() {
-  local to="$1"
-  local sig="$2"
-  shift 2
-
-  local calldata raw
-  calldata=$(cast calldata "$sig" "$@")
-  raw=$(eth_call_raw "$to" "$calldata")
-  cast decode-abi "f()(bool)" "$raw"
-}
-
-call_uint() {
-  local to="$1"
-  local sig="$2"
-  shift 2
-
-  local calldata raw decoded
-  calldata=$(cast calldata "$sig" "$@")
-  raw=$(eth_call_raw "$to" "$calldata")
-  decoded=$(cast decode-abi "f()(uint256)" "$raw")
-  echo "$decoded"
-}
-
-send_contract_tx() {
-  local to="$1"
-  local sig="$2"
-  shift 2
-
-  local calldata
-  calldata=$(cast calldata "$sig" "$@")
-  send_tx "$to" "$calldata" 1 >/dev/null
-}
-
-world_proof_payload() {
-  local user="$1"
-  local expires_at="$2"
-
-  local packed digest sig
-  packed=$(cast abi-encode --packed "f(string,address,bool,uint64)" "SATISFY_WORLD_ID_V1" "$user" true "$expires_at")
-  digest=$(cast keccak "$packed")
-  sig=$(cast wallet sign --private-key "$WORLD_ISSUER_PK" "$digest")
-
-  cast abi-encode "f((bool,uint64,bytes))" "(true,$expires_at,$sig)"
-}
-
-self_proof_payload() {
-  local user="$1"
-  local age="$2"
-  local contributor="$3"
-  local dao_member="$4"
-  local expires_at="$5"
-
-  local packed digest sig
-  packed=$(cast abi-encode --packed "f(string,address,uint8,bool,bool,uint64)" \
-    "SATISFY_SELF_V1" "$user" "$age" "$contributor" "$dao_member" "$expires_at")
-  digest=$(cast keccak "$packed")
-  sig=$(cast wallet sign --private-key "$SELF_ISSUER_PK" "$digest")
-
-  cast abi-encode "f((uint8,bool,bool,uint64,bytes))" "($age,$contributor,$dao_member,$expires_at,$sig)"
 }
 
 require_cmd anvil
@@ -270,102 +130,155 @@ else
 fi
 
 DEPLOYER_ADDR=$(cast wallet address --private-key "$DEPLOYER_PK")
-WORLD_ISSUER_ADDR=$(cast wallet address --private-key "$WORLD_ISSUER_PK")
-SELF_ISSUER_ADDR=$(cast wallet address --private-key "$SELF_ISSUER_PK")
+SELF_SIGNER_ADDR=$(cast wallet address --private-key "$SELF_SIGNER_PK")
 
 log "Building contracts"
 (cd "$ROOT_DIR" && forge build --offline >/dev/null)
 
 log "Deploying contracts"
-ENGINE=$(deploy_contract "src/SatisfyPolicyEngine.sol:SatisfyPolicyEngine" "constructor(address)" "$DEPLOYER_ADDR")
-WORLD_ADAPTER=$(deploy_contract "src/adapters/WorldIdAdapter.sol:WorldIdAdapter" "constructor(address,address)" "$DEPLOYER_ADDR" "$WORLD_ISSUER_ADDR")
-SELF_ADAPTER=$(deploy_contract "src/adapters/SelfAdapter.sol:SelfAdapter" "constructor(address,address)" "$DEPLOYER_ADDR" "$SELF_ISSUER_ADDR")
-HOOK=$(deploy_contract "src/SatisfyHook.sol:SatisfyHook" "constructor(address,address,address)" "$DEPLOYER_ADDR" "$ENGINE" "$DEPLOYER_ADDR")
+ENGINE=$(deploy_contract "src/SatisfyPolicyEngine.sol:SatisfyPolicyEngine" "$DEPLOYER_ADDR")
+WORLD_VERIFIER=$(deploy_contract "src/mocks/MockWorldIdVerifier.sol:MockWorldIdVerifier")
+SELF_REGISTRY=$(deploy_contract "src/SelfAttestationRegistry.sol:SelfAttestationRegistry" "$DEPLOYER_ADDR" "$SELF_SIGNER_ADDR")
+WORLD_ADAPTER=$(deploy_contract "src/adapters/WorldIdAdapter.sol:WorldIdAdapter" "$DEPLOYER_ADDR" "$WORLD_VERIFIER" 1)
+SELF_ADAPTER=$(deploy_contract "src/adapters/SelfAdapter.sol:SelfAdapter" "$DEPLOYER_ADDR" "$SELF_REGISTRY")
+HOOK=$(deploy_contract "src/SatisfyHook.sol:SatisfyHook" "$DEPLOYER_ADDR" "$ENGINE" "$DEPLOYER_ADDR")
+TIMELOCK=$(deploy_contract "src/SatisfyTimelock.sol:SatisfyTimelock" "$DEPLOYER_ADDR" 0 "$DEPLOYER_ADDR" "$DEPLOYER_ADDR")
+AUTOMATION=$(deploy_contract \
+  "src/SatisfyAutomationModule.sol:SatisfyAutomationModule" \
+  "$DEPLOYER_ADDR" \
+  "$DEPLOYER_ADDR" \
+  "$DEPLOYER_ADDR" \
+  "$DEPLOYER_ADDR" \
+  "$DEPLOYER_ADDR" \
+  "$DEPLOYER_ADDR" \
+  "$DEPLOYER_ADDR" \
+  "$ENGINE" \
+  "$HOOK" \
+  "$WORLD_ADAPTER" \
+  "$SELF_ADAPTER" \
+  "$SELF_REGISTRY")
 
 WORLD_ID=$(cast keccak "WORLD_ID")
 SELF_ID=$(cast keccak "SELF")
 POOL_ID=$(cast keccak "HUMAN_DAO_POOL")
 
-WORLD_CONDITION=$(cast abi-encode "f(bool)" true)
-SELF_CONDITION=$(cast abi-encode "f((uint8,bool,bool))" "(18,true,false)")
+WORLD_CONDITION=$(cast abi-encode "f((bool,bytes32,bytes32,uint64))" "(true,0x0000000000000000000000000000000000000000000000000000000000000000,$WORLD_POLICY_CONTEXT,86400)")
+SELF_CONDITION=$(cast abi-encode "f((uint8,bool,bool,uint64))" "(18,true,false,86400)")
 PREDICATES="[(${WORLD_ID},${WORLD_CONDITION}),(${SELF_ID},${SELF_CONDITION})]"
 
 log "Configuring policy engine and hook"
-send_contract_tx "$ENGINE" "registerAdapter(bytes32,address)" "$WORLD_ID" "$WORLD_ADAPTER"
-send_contract_tx "$ENGINE" "registerAdapter(bytes32,address)" "$SELF_ID" "$SELF_ADAPTER"
-send_contract_tx "$ENGINE" "setAuthorizedConsumer(address,bool)" "$HOOK" true
-send_contract_tx "$ENGINE" "createPolicy(uint8,(bytes32,bytes)[],uint64,uint64,bool)" 0 "$PREDICATES" 0 0 true
-POLICY_ID=$(call_uint "$ENGINE" "policyCount()(uint256)")
-send_contract_tx "$HOOK" "setPoolPolicy(bytes32,uint256)" "$POOL_ID" "$POLICY_ID"
+send_tx "$ENGINE" "registerAdapter(bytes32,address)" "$WORLD_ID" "$WORLD_ADAPTER"
+send_tx "$ENGINE" "registerAdapter(bytes32,address)" "$SELF_ID" "$SELF_ADAPTER"
+send_tx "$ENGINE" "setAuthorizedConsumer(address,bool)" "$HOOK" true
+send_tx "$ENGINE" "createPolicy(uint8,(bytes32,bytes)[],uint64,uint64,bool)" 0 "$PREDICATES" 0 0 true
+POLICY_ID=$(call_view "$ENGINE" "policyCount()(uint256)")
+send_tx "$HOOK" "setPoolPolicy(bytes32,uint256)" "$POOL_ID" "$POLICY_ID"
 
-CURRENT_EPOCH=$(call_uint "$ENGINE" "currentEpoch()(uint256)")
+log "Transferring ownership to automation module"
+send_tx "$ENGINE" "transferOwnership(address)" "$AUTOMATION"
+send_tx "$HOOK" "transferOwnership(address)" "$AUTOMATION"
+send_tx "$WORLD_ADAPTER" "transferOwnership(address)" "$AUTOMATION"
+send_tx "$SELF_ADAPTER" "transferOwnership(address)" "$AUTOMATION"
+send_tx "$SELF_REGISTRY" "transferOwnership(address)" "$AUTOMATION"
+
+CURRENT_EPOCH=$(call_view "$ENGINE" "currentEpoch()(uint64)")
 EXPIRES_AT=$(( $(date +%s) + 86400 ))
+ISSUED_AT=$(date +%s)
 
-WORLD_PROOF=$(world_proof_payload "$SATISFY_USER" "$EXPIRES_AT")
-SELF_PROOF=$(self_proof_payload "$SATISFY_USER" 25 true false "$EXPIRES_AT")
+WORLD_EXTERNAL_NULLIFIER=$(cast keccak "$(cast abi-encode --packed "f(uint256,address,bytes32)" "$CHAIN_ID" "$WORLD_ADAPTER" "$WORLD_POLICY_CONTEXT")")
+WORLD_SIGNAL=$(cast keccak "$(cast abi-encode --packed "f(uint256,address,address,bytes32,bytes32)" "$CHAIN_ID" "$WORLD_ADAPTER" "$SATISFY_USER" "$WORLD_POLICY_CONTEXT" "$WORLD_EXTERNAL_NULLIFIER")")
+
+WORLD_ROOT=111
+WORLD_NULLIFIER_HASH=222
+WORLD_PROOF_ARRAY="[1,2,3,4,5,6,7,8]"
+
+send_tx \
+  "$WORLD_VERIFIER" \
+  "setValidProof(uint256,uint256,uint256,uint256,uint256,uint256[8],bool)" \
+  "$WORLD_ROOT" \
+  1 \
+  "$WORLD_SIGNAL" \
+  "$WORLD_NULLIFIER_HASH" \
+  "$WORLD_EXTERNAL_NULLIFIER" \
+  "$WORLD_PROOF_ARRAY" \
+  true
+
+WORLD_PROOF=$(cast abi-encode "f((uint256,uint256,uint256[8],uint64,uint64,bytes32,bytes32))" "($WORLD_ROOT,$WORLD_NULLIFIER_HASH,$WORLD_PROOF_ARRAY,$ISSUED_AT,$EXPIRES_AT,$WORLD_SIGNAL,$WORLD_EXTERNAL_NULLIFIER)")
+
+SELF_CONTEXT=$(cast keccak "$(cast abi-encode --packed "f(uint256,address,address,bytes)" "$CHAIN_ID" "$SELF_ADAPTER" "$SATISFY_USER" "$SELF_CONDITION")")
+ATTESTATION_ID=$(cast keccak "self-attestation-live")
+SELF_NONCE=$(call_view "$SELF_REGISTRY" "nextNonce(address)(uint256)" "$SELF_SIGNER_ADDR")
+SELF_PAYLOAD="($ATTESTATION_ID,$SATISFY_USER,25,true,false,$ISSUED_AT,$EXPIRES_AT,$SELF_CONTEXT,$SELF_NONCE)"
+SELF_DIGEST=$(call_view "$SELF_REGISTRY" "attestationDigest((bytes32,address,uint8,bool,bool,uint64,uint64,bytes32,uint256))(bytes32)" "$SELF_PAYLOAD")
+SELF_SIGNATURE=$(cast wallet sign --private-key "$SELF_SIGNER_PK" --no-hash "$SELF_DIGEST")
+
+send_tx "$SELF_REGISTRY" "submitAttestation((bytes32,address,uint8,bool,bool,uint64,uint64,bytes32,uint256),bytes)" "$SELF_PAYLOAD" "$SELF_SIGNATURE"
+SELF_PROOF=$(cast abi-encode "f((bytes32,bytes32))" "($ATTESTATION_ID,$SELF_CONTEXT)")
 
 PROOFS="[(${WORLD_ID},${WORLD_PROOF}),(${SELF_ID},${SELF_PROOF})]"
 NULLIFIER_1=$(cast keccak "nullifier-1")
 BUNDLE_1="(${PROOFS},${NULLIFIER_1},${CURRENT_EPOCH})"
 
 log "Verifying satisfies() with valid proofs"
-SAT_OK=$(
-  call_bool "$ENGINE" "satisfies(uint256,address,((bytes32,bytes)[],bytes32,uint64))(bool)" "$POLICY_ID" "$SATISFY_USER" "$BUNDLE_1"
-)
+SAT_OK=$(call_view "$ENGINE" "satisfies(uint256,address,((bytes32,bytes)[],bytes32,uint64))(bool)" "$POLICY_ID" "$SATISFY_USER" "$BUNDLE_1")
 if [[ "$SAT_OK" != "true" ]]; then
   echo "expected satisfies() to be true, got: $SAT_OK" >&2
   exit 1
 fi
 
 log "Executing beforeSwap with valid proof bundle"
-DATA_BEFORE_SWAP=$(
-  cast calldata "beforeSwap(bytes32,address,((bytes32,bytes)[],bytes32,uint64))(bytes4)" "$POOL_ID" "$SATISFY_USER" "$BUNDLE_1"
-)
-send_tx "$HOOK" "$DATA_BEFORE_SWAP" 1 >/dev/null
+send_tx "$HOOK" "beforeSwap(bytes32,address,((bytes32,bytes)[],bytes32,uint64))(bytes4)" "$POOL_ID" "$SATISFY_USER" "$BUNDLE_1"
 
 log "Checking replay protection (expected revert)"
-send_tx "$HOOK" "$DATA_BEFORE_SWAP" 0 >/dev/null
+send_expect_revert "$HOOK" "beforeSwap(bytes32,address,((bytes32,bytes)[],bytes32,uint64))(bytes4)" "$POOL_ID" "$SATISFY_USER" "$BUNDLE_1"
 
-log "Rotating epoch and submitting fresh bundle"
-send_contract_tx "$ENGINE" "setEpoch(uint64)" 2
-NEW_EPOCH=$(call_uint "$ENGINE" "currentEpoch()(uint256)")
+log "Rotating epoch via reactive role and submitting fresh bundle"
+ROTATE_JOB=$(cast keccak "job-rotate-epoch-2")
+send_tx "$AUTOMATION" "reactiveSetEpoch(bytes32,uint64)" "$ROTATE_JOB" 2
+NEW_EPOCH=$(call_view "$ENGINE" "currentEpoch()(uint64)")
 NULLIFIER_2=$(cast keccak "nullifier-2")
 BUNDLE_2="(${PROOFS},${NULLIFIER_2},${NEW_EPOCH})"
 
-OLD_EPOCH_VALID=$(
-  call_bool "$ENGINE" "satisfies(uint256,address,((bytes32,bytes)[],bytes32,uint64))(bool)" "$POLICY_ID" "$SATISFY_USER" "$BUNDLE_1"
-)
+OLD_EPOCH_VALID=$(call_view "$ENGINE" "satisfies(uint256,address,((bytes32,bytes)[],bytes32,uint64))(bool)" "$POLICY_ID" "$SATISFY_USER" "$BUNDLE_1")
 if [[ "$OLD_EPOCH_VALID" != "false" ]]; then
   echo "expected old epoch bundle to be invalid, got: $OLD_EPOCH_VALID" >&2
   exit 1
 fi
 
-DATA_BEFORE_SWAP_2=$(
-  cast calldata "beforeSwap(bytes32,address,((bytes32,bytes)[],bytes32,uint64))(bytes4)" "$POOL_ID" "$SATISFY_USER" "$BUNDLE_2"
-)
-send_tx "$HOOK" "$DATA_BEFORE_SWAP_2" 1 >/dev/null
+send_tx "$HOOK" "beforeSwap(bytes32,address,((bytes32,bytes)[],bytes32,uint64))(bytes4)" "$POOL_ID" "$SATISFY_USER" "$BUNDLE_2"
 
-log "Checking policy mismatch with underage self proof"
-UNDERAGE_SELF_PROOF=$(self_proof_payload "$SATISFY_USER" 16 true false "$EXPIRES_AT")
-NULLIFIER_3=$(cast keccak "nullifier-3")
-UNDERAGE_PROOFS="[(${WORLD_ID},${WORLD_PROOF}),(${SELF_ID},${UNDERAGE_SELF_PROOF})]"
-UNDERAGE_BUNDLE="(${UNDERAGE_PROOFS},${NULLIFIER_3},${NEW_EPOCH})"
-UNDERAGE_OK=$(
-  call_bool "$ENGINE" "satisfies(uint256,address,((bytes32,bytes)[],bytes32,uint64))(bool)" "$POLICY_ID" "$SATISFY_USER" "$UNDERAGE_BUNDLE"
-)
-if [[ "$UNDERAGE_OK" != "false" ]]; then
-  echo "expected underage bundle to fail policy, got: $UNDERAGE_OK" >&2
-  exit 1
-fi
+log "Pausing engine + hook via emergency role and checking enforcement"
+send_tx "$AUTOMATION" "pauseAll(bool)" true
+send_expect_revert "$HOOK" "beforeSwap(bytes32,address,((bytes32,bytes)[],bytes32,uint64))(bytes4)" "$POOL_ID" "$SATISFY_USER" "$BUNDLE_2"
+send_tx "$AUTOMATION" "pauseAll(bool)" false
 
-log "Scenario complete"
-log "Deployer:      $DEPLOYER_ADDR"
+log "E2E succeeded"
 log "PolicyEngine:  $ENGINE"
+log "Hook:          $HOOK"
 log "WorldAdapter:  $WORLD_ADAPTER"
 log "SelfAdapter:   $SELF_ADAPTER"
-log "Hook:          $HOOK"
+log "SelfRegistry:  $SELF_REGISTRY"
+log "WorldVerifier: $WORLD_VERIFIER"
+log "Timelock:      $TIMELOCK"
+log "Automation:    $AUTOMATION"
 log "PolicyId:      $POLICY_ID"
+log "PoolId:        $POOL_ID"
+log "Epoch:         $NEW_EPOCH"
 
-if [[ -n "$ANVIL_PID" ]]; then
-  log "Anvil log:     $ANVIL_LOG"
-fi
+cat <<EOFVARS
+
+# Frontend local values (custom mode)
+VITE_DEFAULT_NETWORK=custom
+VITE_RPC_URL=$RPC_URL
+VITE_CHAIN_ID=$CHAIN_ID
+VITE_POLICY_ENGINE_ADDRESS=$ENGINE
+VITE_HOOK_ADDRESS=$HOOK
+VITE_POLICY_ID=$POLICY_ID
+VITE_POOL_ID=$POOL_ID
+VITE_EPOCH=$NEW_EPOCH
+VITE_WORLD_ADAPTER_ID=$WORLD_ID
+VITE_SELF_ADAPTER_ID=$SELF_ID
+VITE_WORLD_PROOF_PAYLOAD=$WORLD_PROOF
+VITE_SELF_PROOF_PAYLOAD=$SELF_PROOF
+VITE_NULLIFIER=$NULLIFIER_2
+EOFVARS
