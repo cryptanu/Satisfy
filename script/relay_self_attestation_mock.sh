@@ -10,9 +10,15 @@ AGE="${AGE:-18}"
 CONTRIBUTOR="${CONTRIBUTOR:-false}"
 DAO_MEMBER="${DAO_MEMBER:-false}"
 CONTEXT="${CONTEXT:-}"
+SELF_ADAPTER="${SELF_ADAPTER:-}"
+POLICY_CONDITION_HEX="${POLICY_CONDITION_HEX:-}"
 ISSUED_AT="${ISSUED_AT:-$(date +%s)}"
 EXPIRES_AT="${EXPIRES_AT:-$(( $(date +%s) + 86400 ))}"
 ATTESTATION_ID="${ATTESTATION_ID:-}"
+SOURCE_CHAIN_ID="${SOURCE_CHAIN_ID:-$(cast chain-id --rpc-url "$RPC_URL")}"
+SOURCE_BRIDGE_ID="${SOURCE_BRIDGE_ID:-$(cast keccak "SATISFY_SELF_BRIDGE_MOCK_V1")}"
+SOURCE_TX_HASH="${SOURCE_TX_HASH:-}"
+SOURCE_LOG_INDEX="${SOURCE_LOG_INDEX:-0}"
 
 log() {
   echo "[relay-self] $*"
@@ -44,8 +50,16 @@ if [[ -z "$SUBJECT" ]]; then
   exit 1
 fi
 if [[ -z "$CONTEXT" ]]; then
-  echo "CONTEXT is required (bytes32)." >&2
-  exit 1
+  if [[ -n "$SELF_ADAPTER" && -n "$POLICY_CONDITION_HEX" ]]; then
+    CONTEXT=$(cast keccak "$(cast abi-encode --packed "f(uint256,address,address,bytes)" "$SOURCE_CHAIN_ID" "$SELF_ADAPTER" "$SUBJECT" "$POLICY_CONDITION_HEX")")
+  else
+    echo "CONTEXT is required unless SELF_ADAPTER and POLICY_CONDITION_HEX are provided." >&2
+    exit 1
+  fi
+fi
+
+if [[ -z "$SOURCE_TX_HASH" ]]; then
+  SOURCE_TX_HASH=$(cast keccak "$(cast abi-encode --packed "f(address,uint8,bool,bool,uint64,uint64,bytes32)" "$SUBJECT" "$AGE" "$CONTRIBUTOR" "$DAO_MEMBER" "$ISSUED_AT" "$EXPIRES_AT" "$CONTEXT")")
 fi
 
 RELAY_SIGNER_ADDR=$(cast wallet address --private-key "$RELAY_SIGNER_PK")
@@ -56,14 +70,14 @@ if [[ -z "$ATTESTATION_ID" ]]; then
   ATTESTATION_ID=$(cast keccak "$(cast abi-encode --packed "f(address,uint8,bool,bool,uint64,uint64,bytes32,uint256)" "$SUBJECT" "$AGE" "$CONTRIBUTOR" "$DAO_MEMBER" "$ISSUED_AT" "$EXPIRES_AT" "$CONTEXT" "$NONCE")")
 fi
 
-PAYLOAD="($ATTESTATION_ID,$SUBJECT,$AGE,$CONTRIBUTOR,$DAO_MEMBER,$ISSUED_AT,$EXPIRES_AT,$CONTEXT,$NONCE)"
-DIGEST=$(cast call "$SELF_REGISTRY" "attestationDigest((bytes32,address,uint8,bool,bool,uint64,uint64,bytes32,uint256))(bytes32)" "$PAYLOAD" --rpc-url "$RPC_URL")
+PAYLOAD="($ATTESTATION_ID,$SUBJECT,$AGE,$CONTRIBUTOR,$DAO_MEMBER,$ISSUED_AT,$EXPIRES_AT,$CONTEXT,$SOURCE_CHAIN_ID,$SOURCE_BRIDGE_ID,$SOURCE_TX_HASH,$SOURCE_LOG_INDEX,$NONCE)"
+DIGEST=$(cast call "$SELF_REGISTRY" "attestationDigest((bytes32,address,uint8,bool,bool,uint64,uint64,bytes32,uint64,bytes32,bytes32,uint32,uint256))(bytes32)" "$PAYLOAD" --rpc-url "$RPC_URL")
 SIGNATURE=$(cast wallet sign --private-key "$RELAY_SIGNER_PK" --no-hash "$DIGEST")
 
 log "Submitting attestation"
 cast send \
   "$SELF_REGISTRY" \
-  "submitAttestation((bytes32,address,uint8,bool,bool,uint64,uint64,bytes32,uint256),bytes)" \
+  "submitAttestation((bytes32,address,uint8,bool,bool,uint64,uint64,bytes32,uint64,bytes32,bytes32,uint32,uint256),bytes)" \
   "$PAYLOAD" \
   "$SIGNATURE" \
   --rpc-url "$RPC_URL" \
@@ -76,6 +90,9 @@ log "Relayer:       $RELAYER_ADDR"
 log "Relay signer:  $RELAY_SIGNER_ADDR"
 log "AttestationId: $ATTESTATION_ID"
 log "Nonce:         $NONCE"
+log "Source chain:  $SOURCE_CHAIN_ID"
+log "Source bridge: $SOURCE_BRIDGE_ID"
+log "Source tx:     $SOURCE_TX_HASH"
 
 cat <<EOFOUT
 

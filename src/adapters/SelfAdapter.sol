@@ -16,6 +16,8 @@ contract SelfAdapter is ICredentialAdapter, Ownable {
         bool requireContributor;
         bool requireDaoMember;
         uint64 maxAttestationAge;
+        uint64 requiredSourceChainId;
+        bytes32 requiredSourceBridgeId;
     }
 
     ISelfAttestationRegistry public registry;
@@ -64,6 +66,12 @@ contract SelfAdapter is ICredentialAdapter, Ownable {
             condition.maxAttestationAge != 0
                 && block.timestamp > uint256(record.issuedAt) + uint256(condition.maxAttestationAge)
         ) {
+            return false;
+        }
+        if (condition.requiredSourceChainId != 0 && record.sourceChainId != condition.requiredSourceChainId) {
+            return false;
+        }
+        if (condition.requiredSourceBridgeId != bytes32(0) && record.sourceBridgeId != condition.requiredSourceBridgeId) {
             return false;
         }
 

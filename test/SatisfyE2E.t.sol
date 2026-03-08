@@ -64,7 +64,9 @@ contract SatisfyE2ETest {
             minAge: 18,
             requireContributor: true,
             requireDaoMember: false,
-            maxAttestationAge: uint64(1 days)
+            maxAttestationAge: uint64(1 days),
+            requiredSourceChainId: 0,
+            requiredSourceBridgeId: bytes32(0)
         });
 
         SatisfyTypes.Predicate[] memory predicates = new SatisfyTypes.Predicate[](2);
@@ -180,6 +182,10 @@ contract SatisfyE2ETest {
             issuedAt: uint64(block.timestamp),
             expiresAt: expiresAt,
             context: context,
+            sourceChainId: uint64(block.chainid),
+            sourceBridgeId: keccak256("SELF_BRIDGE_V1"),
+            sourceTxHash: keccak256(abi.encodePacked("sourceTx", attestationId)),
+            sourceLogIndex: 0,
             nonce: selfRegistry.nextNonce(vm.addr(SELF_SIGNER_PK))
         });
 

@@ -10,6 +10,10 @@ interface ISelfAttestationRegistry {
         uint64 issuedAt;
         uint64 expiresAt;
         bytes32 context;
+        uint64 sourceChainId;
+        bytes32 sourceBridgeId;
+        bytes32 sourceTxHash;
+        uint32 sourceLogIndex;
         bool revoked;
         bool exists;
     }

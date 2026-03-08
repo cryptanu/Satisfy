@@ -163,7 +163,7 @@ SELF_ID=$(cast keccak "SELF")
 POOL_ID=$(cast keccak "HUMAN_DAO_POOL")
 
 WORLD_CONDITION=$(cast abi-encode "f((bool,bytes32,bytes32,uint64))" "(true,0x0000000000000000000000000000000000000000000000000000000000000000,$WORLD_POLICY_CONTEXT,86400)")
-SELF_CONDITION=$(cast abi-encode "f((uint8,bool,bool,uint64))" "(18,true,false,86400)")
+SELF_CONDITION=$(cast abi-encode "f((uint8,bool,bool,uint64,uint64,bytes32))" "(18,true,false,86400,0,0x0000000000000000000000000000000000000000000000000000000000000000)")
 PREDICATES="[(${WORLD_ID},${WORLD_CONDITION}),(${SELF_ID},${SELF_CONDITION})]"
 
 log "Configuring policy engine and hook"
@@ -208,11 +208,13 @@ WORLD_PROOF=$(cast abi-encode "f((uint256,uint256,uint256[8],uint64,uint64,bytes
 SELF_CONTEXT=$(cast keccak "$(cast abi-encode --packed "f(uint256,address,address,bytes)" "$CHAIN_ID" "$SELF_ADAPTER" "$SATISFY_USER" "$SELF_CONDITION")")
 ATTESTATION_ID=$(cast keccak "self-attestation-live")
 SELF_NONCE=$(call_view "$SELF_REGISTRY" "nextNonce(address)(uint256)" "$SELF_SIGNER_ADDR")
-SELF_PAYLOAD="($ATTESTATION_ID,$SATISFY_USER,25,true,false,$ISSUED_AT,$EXPIRES_AT,$SELF_CONTEXT,$SELF_NONCE)"
-SELF_DIGEST=$(call_view "$SELF_REGISTRY" "attestationDigest((bytes32,address,uint8,bool,bool,uint64,uint64,bytes32,uint256))(bytes32)" "$SELF_PAYLOAD")
+SOURCE_BRIDGE_ID=$(cast keccak "ANVIL_BRIDGE")
+SOURCE_TX_HASH=$(cast keccak "anvil-source-tx")
+SELF_PAYLOAD="($ATTESTATION_ID,$SATISFY_USER,25,true,false,$ISSUED_AT,$EXPIRES_AT,$SELF_CONTEXT,$CHAIN_ID,$SOURCE_BRIDGE_ID,$SOURCE_TX_HASH,0,$SELF_NONCE)"
+SELF_DIGEST=$(call_view "$SELF_REGISTRY" "attestationDigest((bytes32,address,uint8,bool,bool,uint64,uint64,bytes32,uint64,bytes32,bytes32,uint32,uint256))(bytes32)" "$SELF_PAYLOAD")
 SELF_SIGNATURE=$(cast wallet sign --private-key "$SELF_SIGNER_PK" --no-hash "$SELF_DIGEST")
 
-send_tx "$SELF_REGISTRY" "submitAttestation((bytes32,address,uint8,bool,bool,uint64,uint64,bytes32,uint256),bytes)" "$SELF_PAYLOAD" "$SELF_SIGNATURE"
+send_tx "$SELF_REGISTRY" "submitAttestation((bytes32,address,uint8,bool,bool,uint64,uint64,bytes32,uint64,bytes32,bytes32,uint32,uint256),bytes)" "$SELF_PAYLOAD" "$SELF_SIGNATURE"
 SELF_PROOF=$(cast abi-encode "f((bytes32,bytes32))" "($ATTESTATION_ID,$SELF_CONTEXT)")
 
 PROOFS="[(${WORLD_ID},${WORLD_PROOF}),(${SELF_ID},${SELF_PROOF})]"

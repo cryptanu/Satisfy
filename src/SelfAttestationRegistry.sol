@@ -17,12 +17,16 @@ contract SelfAttestationRegistry is ISelfAttestationRegistry, Ownable {
         uint64 issuedAt;
         uint64 expiresAt;
         bytes32 context;
+        uint64 sourceChainId;
+        bytes32 sourceBridgeId;
+        bytes32 sourceTxHash;
+        uint32 sourceLogIndex;
         uint256 nonce;
     }
 
     bytes32 public constant ATTESTATION_TYPEHASH =
         keccak256(
-            "SelfAttestationV1(bytes32 attestationId,address subject,uint8 age,bool contributor,bool daoMember,uint64 issuedAt,uint64 expiresAt,bytes32 context,uint256 nonce)"
+            "SelfAttestationV1(bytes32 attestationId,address subject,uint8 age,bool contributor,bool daoMember,uint64 issuedAt,uint64 expiresAt,bytes32 context,uint64 sourceChainId,bytes32 sourceBridgeId,bytes32 sourceTxHash,uint32 sourceLogIndex,uint256 nonce)"
         );
 
     mapping(bytes32 => AttestationRecord) private attestationById;
@@ -33,6 +37,7 @@ contract SelfAttestationRegistry is ISelfAttestationRegistry, Ownable {
     error InvalidSigner();
     error InvalidSubject();
     error InvalidTimeRange();
+    error InvalidBridgeReference();
     error InvalidNonce(uint256 expected, uint256 actual);
 
     event AttestationSubmitted(bytes32 indexed attestationId, address indexed signer, address indexed subject);
@@ -54,6 +59,7 @@ contract SelfAttestationRegistry is ISelfAttestationRegistry, Ownable {
     function submitAttestation(AttestationPayloadV1 calldata payload, bytes calldata signature) external {
         if (payload.subject == address(0)) revert InvalidSubject();
         if (payload.expiresAt <= payload.issuedAt) revert InvalidTimeRange();
+        if (payload.sourceChainId == 0 || payload.sourceTxHash == bytes32(0)) revert InvalidBridgeReference();
         if (attestationById[payload.attestationId].exists) revert AttestationAlreadyExists(payload.attestationId);
 
         bytes32 digest = _attestationDigest(payload);
@@ -72,6 +78,10 @@ contract SelfAttestationRegistry is ISelfAttestationRegistry, Ownable {
             issuedAt: payload.issuedAt,
             expiresAt: payload.expiresAt,
             context: payload.context,
+            sourceChainId: payload.sourceChainId,
+            sourceBridgeId: payload.sourceBridgeId,
+            sourceTxHash: payload.sourceTxHash,
+            sourceLogIndex: payload.sourceLogIndex,
             revoked: false,
             exists: true
         });
@@ -107,6 +117,10 @@ contract SelfAttestationRegistry is ISelfAttestationRegistry, Ownable {
                 payload.issuedAt,
                 payload.expiresAt,
                 payload.context,
+                payload.sourceChainId,
+                payload.sourceBridgeId,
+                payload.sourceTxHash,
+                payload.sourceLogIndex,
                 payload.nonce
             )
         );

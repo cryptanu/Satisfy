@@ -30,7 +30,9 @@ contract SelfAdapterTest {
             minAge: 18,
             requireContributor: true,
             requireDaoMember: false,
-            maxAttestationAge: 1 days
+            maxAttestationAge: 1 days,
+            requiredSourceChainId: 0,
+            requiredSourceBridgeId: bytes32(0)
         });
 
         bytes memory proofPayload = _submit(USER, condition, 22, true, false, uint64(block.timestamp + 1 days));
@@ -43,7 +45,9 @@ contract SelfAdapterTest {
             minAge: 18,
             requireContributor: false,
             requireDaoMember: false,
-            maxAttestationAge: 0
+            maxAttestationAge: 0,
+            requiredSourceChainId: 0,
+            requiredSourceBridgeId: bytes32(0)
         });
 
         bytes memory proofPayload = _submit(USER, condition, 30, true, false, uint64(block.timestamp + 1 days));
@@ -52,11 +56,41 @@ contract SelfAdapterTest {
             minAge: 18,
             requireContributor: true,
             requireDaoMember: false,
-            maxAttestationAge: 0
+            maxAttestationAge: 0,
+            requiredSourceChainId: 0,
+            requiredSourceBridgeId: bytes32(0)
         });
 
         bool ok = adapter.verify(USER, proofPayload, abi.encode(wrongCondition));
         require(!ok, "condition mismatch should fail context");
+    }
+
+    function testVerifyEnforcesSourceChainAndBridgeWhenConfigured() public {
+        bytes32 expectedBridge = keccak256("SELF_BRIDGE_V1");
+        SelfAdapter.SelfConditionV1 memory condition = SelfAdapter.SelfConditionV1({
+            minAge: 18,
+            requireContributor: false,
+            requireDaoMember: false,
+            maxAttestationAge: 0,
+            requiredSourceChainId: uint64(block.chainid),
+            requiredSourceBridgeId: expectedBridge
+        });
+
+        bytes memory proofPayload = _submit(USER, condition, 30, true, false, uint64(block.timestamp + 1 days));
+        bool ok = adapter.verify(USER, proofPayload, abi.encode(condition));
+        require(ok, "matching bridge source should verify");
+
+        SelfAdapter.SelfConditionV1 memory wrongSource = SelfAdapter.SelfConditionV1({
+            minAge: 18,
+            requireContributor: false,
+            requireDaoMember: false,
+            maxAttestationAge: 0,
+            requiredSourceChainId: uint64(block.chainid + 1),
+            requiredSourceBridgeId: expectedBridge
+        });
+
+        bool wrongSourceOk = adapter.verify(USER, proofPayload, abi.encode(wrongSource));
+        require(!wrongSourceOk, "wrong bridge source chain should fail");
     }
 
     function testVerifyRejectsAgeAndContributorConstraint() public {
@@ -64,7 +98,9 @@ contract SelfAdapterTest {
             minAge: 21,
             requireContributor: true,
             requireDaoMember: false,
-            maxAttestationAge: 0
+            maxAttestationAge: 0,
+            requiredSourceChainId: 0,
+            requiredSourceBridgeId: bytes32(0)
         });
 
         bytes memory proofPayload = _submit(USER, condition, 19, false, false, uint64(block.timestamp + 1 days));
@@ -78,7 +114,9 @@ contract SelfAdapterTest {
             minAge: 18,
             requireContributor: false,
             requireDaoMember: false,
-            maxAttestationAge: 1 hours
+            maxAttestationAge: 1 hours,
+            requiredSourceChainId: 0,
+            requiredSourceBridgeId: bytes32(0)
         });
 
         bytes memory conditionBytes = abi.encode(condition);
@@ -94,6 +132,10 @@ contract SelfAdapterTest {
             issuedAt: uint64(1 days),
             expiresAt: uint64(2 days),
             context: context,
+            sourceChainId: uint64(block.chainid),
+            sourceBridgeId: keccak256("SELF_BRIDGE_V1"),
+            sourceTxHash: keccak256("source-tx-old"),
+            sourceLogIndex: 0,
             nonce: registry.nextNonce(vm.addr(SIGNER_PK))
         });
 
@@ -110,7 +152,9 @@ contract SelfAdapterTest {
             minAge: 18,
             requireContributor: false,
             requireDaoMember: false,
-            maxAttestationAge: 0
+            maxAttestationAge: 0,
+            requiredSourceChainId: 0,
+            requiredSourceBridgeId: bytes32(0)
         });
 
         bytes memory conditionBytes = abi.encode(condition);
@@ -126,6 +170,10 @@ contract SelfAdapterTest {
             issuedAt: uint64(block.timestamp),
             expiresAt: uint64(block.timestamp + 1 days),
             context: context,
+            sourceChainId: uint64(block.chainid),
+            sourceBridgeId: keccak256("SELF_BRIDGE_V1"),
+            sourceTxHash: keccak256("source-tx-revoked"),
+            sourceLogIndex: 0,
             nonce: registry.nextNonce(vm.addr(SIGNER_PK))
         });
 
@@ -144,7 +192,9 @@ contract SelfAdapterTest {
             minAge: 18,
             requireContributor: false,
             requireDaoMember: false,
-            maxAttestationAge: 0
+            maxAttestationAge: 0,
+            requiredSourceChainId: 0,
+            requiredSourceBridgeId: bytes32(0)
         });
 
         (bool success,) = address(adapter).call(
@@ -175,6 +225,10 @@ contract SelfAdapterTest {
             issuedAt: uint64(block.timestamp),
             expiresAt: expiresAt,
             context: context,
+            sourceChainId: uint64(block.chainid),
+            sourceBridgeId: keccak256("SELF_BRIDGE_V1"),
+            sourceTxHash: keccak256(abi.encodePacked("source-tx", attestationId)),
+            sourceLogIndex: 0,
             nonce: registry.nextNonce(vm.addr(SIGNER_PK))
         });
 

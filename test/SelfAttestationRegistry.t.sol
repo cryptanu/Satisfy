@@ -101,6 +101,27 @@ contract SelfAttestationRegistryTest {
         require(!success, "non-trusted signer should fail");
     }
 
+    function testInvalidBridgeReferenceRejected() public {
+        SelfAttestationRegistry.AttestationPayloadV1 memory payload = _payload(
+            keccak256("att-bridge-invalid"),
+            address(0x4567),
+            40,
+            true,
+            false,
+            uint64(block.timestamp),
+            uint64(block.timestamp + 1 days),
+            keccak256("ctx-bridge"),
+            0
+        );
+        payload.sourceChainId = 0;
+        payload.sourceTxHash = bytes32(0);
+
+        bytes memory signature = _signPayload(payload, SIGNER_PK);
+        (bool success,) =
+            address(registry).call(abi.encodeWithSelector(registry.submitAttestation.selector, payload, signature));
+        require(!success, "missing bridge reference should fail");
+    }
+
     function testDomainSeparationRejectsCrossContractDigest() public {
         SelfAttestationRegistry otherRegistry = new SelfAttestationRegistry(address(this), trustedSigner);
 
@@ -155,7 +176,7 @@ contract SelfAttestationRegistryTest {
         uint64 expiresAt,
         bytes32 context,
         uint256 nonce
-    ) internal pure returns (SelfAttestationRegistry.AttestationPayloadV1 memory) {
+    ) internal view returns (SelfAttestationRegistry.AttestationPayloadV1 memory) {
         return SelfAttestationRegistry.AttestationPayloadV1({
             attestationId: attestationId,
             subject: subject,
@@ -165,6 +186,10 @@ contract SelfAttestationRegistryTest {
             issuedAt: issuedAt,
             expiresAt: expiresAt,
             context: context,
+            sourceChainId: uint64(block.chainid),
+            sourceBridgeId: keccak256("SELF_BRIDGE_V1"),
+            sourceTxHash: keccak256(abi.encodePacked("source-tx", attestationId)),
+            sourceLogIndex: 0,
             nonce: nonce
         });
     }
