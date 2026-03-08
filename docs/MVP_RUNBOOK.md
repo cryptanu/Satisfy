@@ -117,6 +117,12 @@ Prepare fixture JSON from recorded provider outputs, base64 it, and store as rep
 
 - `REALDATA_FIXTURE_JSON_B64`
 
+Helper to build fixture JSON + base64 from exported env values:
+
+```bash
+./script/build_realdata_fixture.sh
+```
+
 CI will execute:
 
 ```bash
@@ -124,3 +130,8 @@ CI will execute:
 ```
 
 This lane must pass along with standard unit/integration jobs.
+
+Optional deployed-testnet smoke lane can also run in CI when these secrets are configured:
+
+- `UNICHAIN_SMOKE_DEPLOYMENT_B64`
+- `UNICHAIN_SMOKE_RPC_URL`

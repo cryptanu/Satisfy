@@ -44,3 +44,13 @@ All `0x...` values must be ABI-encoded bytes.
 - Keep fixtures in CI secrets, not in git history.
 - Strip any non-essential PII before encoding.
 - Rotate signer keys used for test relays.
+
+## Build Helper
+
+To generate fixture JSON and base64 secret value from env vars:
+
+```bash
+./script/build_realdata_fixture.sh
+```
+
+This prints a ready-to-paste `REALDATA_FIXTURE_JSON_B64=...` line for CI secrets.

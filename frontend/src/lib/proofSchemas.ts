@@ -1,4 +1,4 @@
-import {decodeAbiParameters, type Hex} from 'viem';
+import {decodeAbiParameters, encodeAbiParameters, type Hex} from 'viem';
 
 const worldProofSchema = [
   {
@@ -25,15 +25,57 @@ const selfProofSchema = [
   },
 ] as const;
 
-export function validateWorldIdProofPayload(payload: Hex): void {
+export type WorldIdProofV1 = {
+  root: bigint;
+  nullifierHash: bigint;
+  proof: readonly [
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+  ];
+  issuedAt: bigint;
+  validUntil: bigint;
+  signal: Hex;
+  externalNullifier: Hex;
+};
+
+export type SelfAttestationProofV1 = {
+  attestationId: Hex;
+  context: Hex;
+};
+
+export function decodeWorldIdProofPayload(payload: Hex): WorldIdProofV1 {
   const [decoded] = decodeAbiParameters(worldProofSchema, payload);
+  return decoded;
+}
+
+export function encodeWorldIdProofPayload(proof: WorldIdProofV1): Hex {
+  return encodeAbiParameters(worldProofSchema, [proof]);
+}
+
+export function decodeSelfAttestationProofPayload(payload: Hex): SelfAttestationProofV1 {
+  const [decoded] = decodeAbiParameters(selfProofSchema, payload);
+  return decoded;
+}
+
+export function encodeSelfAttestationProofPayload(proof: SelfAttestationProofV1): Hex {
+  return encodeAbiParameters(selfProofSchema, [proof]);
+}
+
+export function validateWorldIdProofPayload(payload: Hex): void {
+  const decoded = decodeWorldIdProofPayload(payload);
   if (decoded.validUntil <= decoded.issuedAt) {
     throw new Error('WorldIdProofV1 invalid time range: validUntil must be > issuedAt');
   }
 }
 
 export function validateSelfAttestationProofPayload(payload: Hex): void {
-  const [decoded] = decodeAbiParameters(selfProofSchema, payload);
+  const decoded = decodeSelfAttestationProofPayload(payload);
   if (decoded.attestationId === '0x0000000000000000000000000000000000000000000000000000000000000000') {
     throw new Error('SelfAttestationProofV1 attestationId cannot be zero');
   }

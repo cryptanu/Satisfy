@@ -91,6 +91,10 @@ Deployment output includes:
 - verifier + registry config
 - `deployments/unichain-<network>.json`
 
+Safe-first default:
+
+- set `SAFE_ADDRESS` in `.env.unichain` to use Safe as default for automation owner, timelock admin/proposer/executor, and emergency actor.
+
 ## Relay Mock (Bridged Attestation Path)
 
 Post a testnet attestation into `SelfAttestationRegistry` using domain-separated signature + nonce protection:
@@ -117,7 +121,7 @@ After deployment, run governance + optional fixture replay checks:
 
 Optional fixture replay inputs:
 
-- `USER`
+- `SMOKE_USER`
 - `WORLD_PROOF_PAYLOAD`
 - `SELF_ATTESTATION_PAYLOAD`
 - `SELF_ATTESTATION_SIGNATURE`
@@ -159,6 +163,7 @@ CI runs:
 - local anvil E2E script
 - frontend lint/build
 - real-data replay lane
+- optional Unichain smoke lane (when Unichain smoke secrets are configured)
 
 Real-data lane replays recorded provider fixtures from CI secrets:
 
@@ -169,9 +174,24 @@ Real-data lane replays recorded provider fixtures from CI secrets:
 Expected secret:
 
 - `REALDATA_FIXTURE_JSON_B64`
+- optional:
+  - `UNICHAIN_SMOKE_DEPLOYMENT_B64`
+  - `UNICHAIN_SMOKE_RPC_URL`
+  - `UNICHAIN_SMOKE_USER`
+  - `UNICHAIN_SMOKE_WORLD_PROOF_PAYLOAD`
+  - `UNICHAIN_SMOKE_SELF_ATTESTATION_PAYLOAD`
+  - `UNICHAIN_SMOKE_SELF_ATTESTATION_SIGNATURE`
+  - `UNICHAIN_SMOKE_SELF_PROOF_PAYLOAD`
+  - `UNICHAIN_SMOKE_RELAYER_PK`
 
 Fixture schema example: [`docs/real_data_fixture.example.json`](docs/real_data_fixture.example.json).  
 Encoding reference: [`docs/REAL_DATA_FIXTURE.md`](docs/REAL_DATA_FIXTURE.md).
+
+To build a fixture JSON + base64 value locally:
+
+```bash
+./script/build_realdata_fixture.sh
+```
 
 ## Repository Layout
 
@@ -181,6 +201,8 @@ Encoding reference: [`docs/REAL_DATA_FIXTURE.md`](docs/REAL_DATA_FIXTURE.md).
 - `script/anvil_e2e.sh` local full-path protocol test
 - `script/relay_self_attestation_mock.sh` mock bridge relay submission
 - `script/ci_real_data_replay.sh` CI replay lane
+- `script/ci_unichain_smoke.sh` CI smoke runner for deployed Unichain artifact
+- `script/build_realdata_fixture.sh` fixture bundler for CI secret generation
 - `script/unichain_smoke.sh` testnet smoke assertions + fixture replay
 - `frontend/` React + Vite app
 - `docs/` runbooks and deployment docs
