@@ -1,23 +1,35 @@
-# MVP Runbook
+# Satisfy Runbook (Unichain Sepolia)
 
-This runbook shows a clean demo path focused on Unichain deployment.
+This runbook demonstrates the hardened Satisfy flow end-to-end.
 
-## 1. Compile
+## 1. Compile + Test
 
 ```bash
 forge build --offline
-```
-
-## 2. Run Test Suite
-
-```bash
 forge test --offline
 ```
 
-Expected result:
+Expected:
 
-- all suites pass
-- includes unit and end-to-end Solidity tests
+- adapter verification matrix tests pass
+- governance/timelock role tests pass
+- hook/policy pause and replay tests pass
+
+## 2. Local E2E (Anvil)
+
+```bash
+./script/anvil_e2e.sh
+```
+
+Expected checkpoints:
+
+- contracts deploy
+- policy + pool configured
+- `satisfies()` returns `true`
+- first `beforeSwap` succeeds
+- replayed `beforeSwap` fails
+- epoch rotation invalidates old bundle
+- emergency pause blocks enforcement
 
 ## 3. Deploy to Unichain Sepolia
 
@@ -27,46 +39,69 @@ source .env.unichain
 UNICHAIN_NETWORK=sepolia ./script/deploy_unichain.sh
 ```
 
-Expected checkpoints in output:
+Expected outputs:
 
-- contract addresses for policy engine, adapters, and hook
-- `PolicyId` and `PoolId`
-- generated `deployments/unichain-sepolia.json`
-- frontend env block for direct copy
+- engine, hook, adapters, registry, timelock, automation addresses
+- policy/pool binding summary
+- ownership transfer to automation module
+- deployment artifact at `deployments/unichain-sepolia.json`
 
-## 4. Frontend Wiring
+## 4. Submit Testnet Self Attestation (Relay Mock)
 
 ```bash
+RPC_URL=https://sepolia.unichain.org \
+RELAYER_PK=0x... \
+RELAY_SIGNER_PK=0x... \
+SELF_REGISTRY=0x... \
+SUBJECT=0x... \
+CONTEXT=0x... \
+./script/relay_self_attestation_mock.sh
+```
+
+Expected output includes:
+
+- `SELF_ATTESTATION_ID`
+- `SELF_CONTEXT`
+- `VITE_SELF_PROOF_PAYLOAD`
+
+## 5. Frontend Wiring
+
+```bash
+./script/sync_frontend_artifact.sh deployments/unichain-sepolia.json
 cp frontend/.env.example frontend/.env.local
+```
+
+Set in `frontend/.env.local`:
+
+```bash
+VITE_DEFAULT_NETWORK=unichain-sepolia
+VITE_UNICHAIN_SEPOLIA_DEPLOYMENT_ARTIFACT=/deployments/unichain-sepolia.json
+```
+
+Run frontend:
+
+```bash
 npm --prefix frontend install
 npm --prefix frontend run dev
 ```
 
-In the app:
+In app:
 
-- choose `Unichain Sepolia` mode
 - connect wallet
-- use deployed contract values
-- call `satisfies()` then `beforeSwap`
+- switch to Unichain Sepolia
+- paste proof payloads (world + self)
+- run `satisfies()` then `beforeSwap`
 
-## 5. Optional Mainnet Deployment
+## 6. CI Real-Data Replay Lane
+
+Prepare fixture JSON from recorded provider outputs, base64 it, and store as repository secret:
+
+- `REALDATA_FIXTURE_JSON_B64`
+
+CI will execute:
 
 ```bash
-source .env.unichain
-UNICHAIN_NETWORK=mainnet ./script/deploy_unichain.sh
+./script/ci_real_data_replay.sh
 ```
 
-## 6. Local-Only Protocol Simulation (Optional)
-
-```bash
-./script/anvil_e2e.sh
-```
-
-## 7. What to Show During Demo
-
-- policy creation with composable predicates
-- credential proof verification through adapters
-- hook-gated execution path
-- replay prevention with nullifiers
-- epoch-based lifecycle control
-- Unichain-native deployment and execution flow
+This lane must pass along with standard unit/integration jobs.

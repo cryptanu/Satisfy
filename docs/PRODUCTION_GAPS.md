@@ -1,24 +1,23 @@
-# Production Gaps
+# Remaining Production Gaps
 
-Current repository scope is MVP and demo-ready.
+This repository now includes production-shaped verifier adapters, bridged attestation registry, role-gated automation, and timelock administration support.
 
-## Replace for Mainnet Readiness
+## Still Required Before Mainnet Launch
 
-- swap signed-placeholder adapters with audited zk verifier integrations
-- connect hook methods to canonical Uniswap v4 PoolManager call surfaces
-- DAO-governed policy updates with timelocks and upgrade controls
-- stronger replay domain separation (chain/pool/context-aware nullifier strategy)
-- revocation and expiry automation through reactive execution network
-- formal verification and external security audit
+- Wire `WorldIdAdapter` to audited canonical verifier addresses for each target chain.
+- Replace relay mock operation with hardened relay service (HSM-backed keys, signer quorum, monitoring, incident runbooks).
+- Run external smart-contract security audit and resolve findings.
+- Add formal verification/property tests for replay, role isolation, and pause guarantees.
+- Implement operational observability:
+  - on-chain event indexing
+  - alerting on signer churn, policy churn, replay failures
+- Define governance SOPs:
+  - timelock delay policy
+  - emergency procedure and rollback policy
+  - role rotation cadence
 
-## Add Operational Controls
+## CI/Fixture Security Notes
 
-- role separation (admin, policy-manager, adapter-manager)
-- incident pause / emergency controls
-- monitoring and alerting for failed verification or anomalous policy churn
-
-## Compliance and Privacy
-
-- issuer trust and key rotation procedures
-- selective disclosure minimization in adapter payload design
-- retention and telemetry policies aligned to jurisdictional requirements
+- Real-data fixture secret (`REALDATA_FIXTURE_JSON_B64`) must be scoped to protected branches.
+- Fixture generation should remove any unnecessary PII and keep only cryptographic payload fields.
+- Rotate relay/test signer material periodically even for testnet lanes.

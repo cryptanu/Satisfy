@@ -3,63 +3,74 @@
 **Minimum disclosure, maximum coordination.**
 
 Satisfy is a credential-aware policy layer for Uniswap v4-style markets.
-Instead of allowing participation based on wallet allowlists, Satisfy allows pools to enforce eligibility based on privacy-preserving proofs.
+It gates participation on verifiable proofs, not wallet identity.
 
 ## Story
 
-A DAO launches a token and promises community-first liquidity incentives.
-Within minutes, sybil wallets and bots absorb emissions while real contributors get diluted.
+A DAO launches liquidity incentives and gets botted within minutes.
+Address-based allowlists fail because wallets are cheap and identities are not.
 
-That is address-based coordination.
+Satisfy flips the question from:
 
-Satisfy upgrades this to proof-based coordination.
-Before a swap or liquidity action, the market asks:
+- Who are you?
 
-**"What can you prove?"**
+to:
 
-Not identity. Not private documents. Just cryptographic facts:
+- What can you prove?
 
-- unique human
-- eligible contributor
-- policy-compliant participant
+Proofs are evaluated against policy at execution time in hook-gated flows.
+If policy is satisfied, the market action executes. Otherwise it reverts.
 
-If the proof bundle satisfies policy, the action executes. If not, it reverts.
-This gives DAOs and protocols a way to coordinate fairly without surveillance.
-
-## MVP Components
+## Production-Hardened Components
 
 - `SatisfyPolicyEngine`
-  - Adapter registry and policy registry.
-  - Policy evaluation via `AND` / `OR` predicates.
-  - Replay-protected proof consumption using `epoch + nullifier`.
+  - Adapter/policy registry, predicate logic (`AND`/`OR`), replay protection.
+  - Global pause gate for emergency response.
 - `SatisfyHook`
-  - Pool-level policy routing (`poolId -> policyId`).
-  - Hook gates for `beforeSwap` and `beforeAddLiquidity`.
+  - Pool-to-policy routing and policy enforcement at `beforeSwap` / `beforeAddLiquidity`.
+  - Independent pause gate for market enforcement.
 - `WorldIdAdapter`
-  - Signed personhood attestation verifier (MVP placeholder for zk integration).
+  - On-chain verifier call path (`IWorldIdVerifier`) with strict domain-separated signal checks.
+  - Freshness controls via `issuedAt`, `validUntil`, and `maxProofAge`.
+- `SelfAttestationRegistry`
+  - Domain-separated signer attestations with nonce replay protection.
+  - Revocation and trusted signer rotation.
 - `SelfAdapter`
-  - Signed selective-disclosure verifier (age / contributor / member claims).
+  - Consumes only on-chain registry attestations.
+  - Context binding to `(chainId, adapter, user, policyCondition)`.
+- `SatisfyAutomationModule`
+  - Role-gated control plane with reactive replay-protected jobs.
+  - Roles:
+    - `POLICY_MANAGER_ROLE`
+    - `ADAPTER_MANAGER_ROLE`
+    - `HOOK_MANAGER_ROLE`
+    - `REACTIVE_EXECUTOR_ROLE`
+    - `EMERGENCY_ROLE`
+- `SatisfyTimelock`
+  - Safe-compatible proposer/executor timelock.
+  - Intended to be role admin for governance hardening.
 
-## Quickstart
+## Local Quickstart
 
 Prereqs:
 
 - Foundry (`forge`, `cast`, `anvil`)
-- `bash`, `curl`
+- `bash`
 
-Build:
+Build and test:
 
 ```bash
 forge build --offline
-```
-
-Run tests:
-
-```bash
 forge test --offline
 ```
 
-### Deploy to Unichain Sepolia (Primary)
+Run local E2E (deploy + policy + proofs + hook execution + replay + epoch + pause):
+
+```bash
+./script/anvil_e2e.sh
+```
+
+## Unichain Deployment (Primary Target)
 
 ```bash
 cp script/.env.unichain.example .env.unichain
@@ -67,90 +78,93 @@ source .env.unichain
 UNICHAIN_NETWORK=sepolia ./script/deploy_unichain.sh
 ```
 
-Unichain targets used by this repo:
+Supported networks:
 
-- `sepolia` -> chain ID `1301`
-- `mainnet` -> chain ID `130`
+- `sepolia` (`chainId=1301`)
+- `mainnet` (`chainId=130`)
 
-### Deploy to Unichain Mainnet
+Deployment output includes:
 
-```bash
-source .env.unichain
-UNICHAIN_NETWORK=mainnet ./script/deploy_unichain.sh
-```
+- core contract addresses
+- governance/timelock role config
+- verifier + registry config
+- `deployments/unichain-<network>.json`
 
-### Local Protocol E2E (Anvil)
+## Relay Mock (Bridged Attestation Path)
 
-For local-only protocol simulation:
-
-```bash
-./script/anvil_e2e.sh
-```
-
-Use existing node:
+Post a testnet attestation into `SelfAttestationRegistry` using domain-separated signature + nonce protection:
 
 ```bash
-RPC_URL=http://127.0.0.1:8545 START_ANVIL=0 ./script/anvil_e2e.sh
+RPC_URL=https://sepolia.unichain.org \
+RELAYER_PK=0x... \
+RELAY_SIGNER_PK=0x... \
+SELF_REGISTRY=0x... \
+SUBJECT=0x... \
+CONTEXT=0x... \
+./script/relay_self_attestation_mock.sh
 ```
 
-Override participant address:
+This outputs a ready-to-use `VITE_SELF_PROOF_PAYLOAD` value for frontend tests.
+
+## Frontend
 
 ```bash
-SATISFY_USER=0x000000000000000000000000000000000000BEEF ./script/anvil_e2e.sh
+cp frontend/.env.example frontend/.env.local
+npm --prefix frontend install
+npm --prefix frontend run dev
 ```
 
-Copy configurable defaults:
+The UI supports:
+
+- `satisfies()`
+- `beforeSwap()`
+- proof payload schema validation for `WorldIdProofV1` and `SelfAttestationProofV1`
+
+### Deployment Artifact Import
+
+Copy deployment artifacts into frontend static assets:
 
 ```bash
-cp .env.example .env
+./script/sync_frontend_artifact.sh deployments/unichain-sepolia.json
 ```
 
-## Developer UX
-
-Use make targets:
+Then set:
 
 ```bash
-make build
-make test
-make e2e
-make deploy-unichain-sepolia
-make deploy-unichain-mainnet
-make clean
+VITE_UNICHAIN_SEPOLIA_DEPLOYMENT_ARTIFACT=/deployments/unichain-sepolia.json
 ```
+
+## CI and Real-Data Replay
+
+CI runs:
+
+- full Foundry tests
+- local anvil E2E script
+- frontend lint/build
+- real-data replay lane
+
+Real-data lane replays recorded provider fixtures from CI secrets:
+
+```bash
+./script/ci_real_data_replay.sh
+```
+
+Expected secret:
+
+- `REALDATA_FIXTURE_JSON_B64`
+
+Fixture schema example: [`docs/real_data_fixture.example.json`](docs/real_data_fixture.example.json).
 
 ## Repository Layout
 
-- `src/`
-  - protocol contracts
-- `test/`
-  - unit + integration tests
-- `script/anvil_e2e.sh`
-  - full local deploy-and-execute scenario
-- `script/deploy_unichain.sh`
-  - deploy + configure contracts on Unichain Sepolia/Mainnet
-- `script/.env.unichain.example`
-  - template env for Unichain deployments
-- `frontend/`
-  - React + Vite UI integrated with `satisfies()` and `beforeSwap()` plus Unichain presets
-- `docs/MVP_RUNBOOK.md`
-  - step-by-step demo flow and expected checkpoints
-- `docs/UNICHAIN_DEPLOYMENT.md`
-  - Unichain Sepolia/Mainnet deployment instructions
-- `docs/PRODUCTION_GAPS.md`
-  - explicit MVP-to-mainnet hardening checklist
-
-## What the E2E Script Validates
-
-- valid policy satisfaction with signed proofs
-- successful `beforeSwap`
-- replay rejection on reused nullifier
-- epoch rotation behavior
-- underage credential rejection
-
-## Notes
-
-This repository is an MVP intended for hackathon demonstration and integration scaffolding.
-For production, replace signed-placeholder adapters with full zk verifier integrations and add governance hardening.
+- `src/` contracts
+- `test/` unit + integration + replay tests
+- `script/deploy_unichain.sh` Unichain deployment pipeline
+- `script/anvil_e2e.sh` local full-path protocol test
+- `script/relay_self_attestation_mock.sh` mock bridge relay submission
+- `script/ci_real_data_replay.sh` CI replay lane
+- `frontend/` React + Vite app
+- `docs/` runbooks and deployment docs
 
 ## License
 

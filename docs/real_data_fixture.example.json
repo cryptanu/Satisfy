@@ -1,0 +1,9 @@
+{
+  "user": "0x0000000000000000000000000000000000001234",
+  "worldCondition": "0x",
+  "worldProofPayload": "0x",
+  "selfCondition": "0x",
+  "selfAttestationPayload": "0x",
+  "selfAttestationSignature": "0x",
+  "selfProofPayload": "0x"
+}
