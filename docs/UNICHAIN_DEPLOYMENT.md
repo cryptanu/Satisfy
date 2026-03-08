@@ -19,6 +19,8 @@ Set at minimum:
 - `UNICHAIN_NETWORK`
 - `WORLD_VERIFIER_ADDRESS` (or `DEPLOY_WORLD_MOCK_VERIFIER=true` for test-only)
 - `SELF_TRUSTED_SIGNER`
+- `POLICY_SOURCE_CHAIN_ID` (optional source-chain constraint for Self adapter)
+- `POLICY_SOURCE_BRIDGE_ID` (optional source-bridge constraint for Self adapter)
 
 Governance/timelock controls:
 
@@ -85,7 +87,22 @@ Then set:
 VITE_UNICHAIN_SEPOLIA_DEPLOYMENT_ARTIFACT=/deployments/unichain-sepolia.json
 ```
 
-## 6. Troubleshooting
+## 6. Post-Deploy Smoke Checks
+
+Run ownership/role assertions from the deployment artifact:
+
+```bash
+./script/unichain_smoke.sh deployments/unichain-sepolia.json
+```
+
+To replay fixture data as part of smoke:
+
+- provide `USER`, `WORLD_PROOF_PAYLOAD`, `SELF_PROOF_PAYLOAD`
+- optionally submit attestation first with:
+  - `SELF_ATTESTATION_PAYLOAD`
+  - `SELF_ATTESTATION_SIGNATURE`
+  - `RELAYER_PK`
+## 7. Troubleshooting
 
 ### `DEPLOYER_PK is required`
 

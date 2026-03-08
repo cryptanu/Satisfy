@@ -1,4 +1,4 @@
-.PHONY: build test e2e e2e-external deploy-unichain-sepolia deploy-unichain-mainnet relay-self-mock sync-frontend-artifact ci-real-data frontend-install frontend-dev frontend-build fmt clean
+.PHONY: build test e2e e2e-external deploy-unichain-sepolia deploy-unichain-mainnet unichain-smoke relay-self-mock sync-frontend-artifact ci-real-data frontend-install frontend-dev frontend-build fmt clean
 
 build:
 	forge build --offline
@@ -17,6 +17,9 @@ deploy-unichain-sepolia:
 
 deploy-unichain-mainnet:
 	UNICHAIN_NETWORK=mainnet ./script/deploy_unichain.sh
+
+unichain-smoke:
+	./script/unichain_smoke.sh deployments/unichain-sepolia.json
 
 relay-self-mock:
 	./script/relay_self_attestation_mock.sh

@@ -64,7 +64,26 @@ Expected output includes:
 - `SELF_CONTEXT`
 - `VITE_SELF_PROOF_PAYLOAD`
 
-## 5. Frontend Wiring
+Relay payload now includes bridge reference fields:
+
+- `sourceChainId`
+- `sourceBridgeId`
+- `sourceTxHash`
+- `sourceLogIndex`
+
+## 5. Unichain Smoke Validation
+
+```bash
+./script/unichain_smoke.sh deployments/unichain-sepolia.json
+```
+
+This verifies:
+
+- ownership handoff to automation module
+- timelock proposer/executor wiring
+- optional `satisfies()` fixture replay when proof env vars are provided
+
+## 6. Frontend Wiring
 
 ```bash
 ./script/sync_frontend_artifact.sh deployments/unichain-sepolia.json
@@ -92,7 +111,7 @@ In app:
 - paste proof payloads (world + self)
 - run `satisfies()` then `beforeSwap`
 
-## 6. CI Real-Data Replay Lane
+## 7. CI Real-Data Replay Lane
 
 Prepare fixture JSON from recorded provider outputs, base64 it, and store as repository secret:
 

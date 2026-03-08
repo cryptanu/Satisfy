@@ -34,6 +34,7 @@ If policy is satisfied, the market action executes. Otherwise it reverts.
   - Freshness controls via `issuedAt`, `validUntil`, and `maxProofAge`.
 - `SelfAttestationRegistry`
   - Domain-separated signer attestations with nonce replay protection.
+  - Carries bridge reference metadata (`sourceChainId`, `sourceBridgeId`, `sourceTxHash`, `sourceLogIndex`).
   - Revocation and trusted signer rotation.
 - `SelfAdapter`
   - Consumes only on-chain registry attestations.
@@ -106,6 +107,22 @@ CONTEXT=0x... \
 
 This outputs a ready-to-use `VITE_SELF_PROOF_PAYLOAD` value for frontend tests.
 
+## Unichain Smoke Validation
+
+After deployment, run governance + optional fixture replay checks:
+
+```bash
+./script/unichain_smoke.sh deployments/unichain-sepolia.json
+```
+
+Optional fixture replay inputs:
+
+- `USER`
+- `WORLD_PROOF_PAYLOAD`
+- `SELF_ATTESTATION_PAYLOAD`
+- `SELF_ATTESTATION_SIGNATURE`
+- `SELF_PROOF_PAYLOAD`
+
 ## Frontend
 
 ```bash
@@ -153,7 +170,8 @@ Expected secret:
 
 - `REALDATA_FIXTURE_JSON_B64`
 
-Fixture schema example: [`docs/real_data_fixture.example.json`](docs/real_data_fixture.example.json).
+Fixture schema example: [`docs/real_data_fixture.example.json`](docs/real_data_fixture.example.json).  
+Encoding reference: [`docs/REAL_DATA_FIXTURE.md`](docs/REAL_DATA_FIXTURE.md).
 
 ## Repository Layout
 
@@ -163,6 +181,7 @@ Fixture schema example: [`docs/real_data_fixture.example.json`](docs/real_data_f
 - `script/anvil_e2e.sh` local full-path protocol test
 - `script/relay_self_attestation_mock.sh` mock bridge relay submission
 - `script/ci_real_data_replay.sh` CI replay lane
+- `script/unichain_smoke.sh` testnet smoke assertions + fixture replay
 - `frontend/` React + Vite app
 - `docs/` runbooks and deployment docs
 
