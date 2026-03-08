@@ -68,6 +68,23 @@ contract SatisfyHookTest {
         require(!outsiderSet, "only owner should set pool policy");
     }
 
+    function testHookPauseBlocksBeforeSwap() public {
+        SatisfyTypes.ProofBundle memory bundle = _bundle(bytes32("hook4"), engine.currentEpoch());
+
+        hook.setPaused(true);
+        (bool success,) = address(hook).call(abi.encodeWithSelector(hook.beforeSwap.selector, POOL_ID, USER, bundle));
+        require(!success, "paused hook should reject beforeSwap");
+
+        hook.setPaused(false);
+        bytes4 selector = hook.beforeSwap(POOL_ID, USER, bundle);
+        require(selector == hook.beforeSwap.selector, "unpaused hook should accept call");
+    }
+
+    function testSetPauseRequiresOwner() public {
+        bool outsiderPause = outsider.callSetHookPaused(hook, true);
+        require(!outsiderPause, "only owner should pause hook");
+    }
+
     function _bundle(bytes32 nullifier, uint64 epoch) internal pure returns (SatisfyTypes.ProofBundle memory) {
         SatisfyTypes.Proof[] memory proofs = new SatisfyTypes.Proof[](1);
         proofs[0] = SatisfyTypes.Proof({adapterId: ADAPTER_WORLD, payload: abi.encode(TAG_HUMAN, USER)});

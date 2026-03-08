@@ -22,6 +22,7 @@ contract SatisfyPolicyEngine is IPolicyEngine, Ownable {
 
     uint256 public policyCount;
     uint64 public currentEpoch;
+    bool public paused;
 
     error EmptyPolicy();
     error InvalidAdapter();
@@ -30,6 +31,7 @@ contract SatisfyPolicyEngine is IPolicyEngine, Ownable {
     error InvalidPolicyWindow();
     error NotAuthorizedConsumer();
     error NullifierAlreadyUsed(bytes32 replayKey);
+    error PolicyEnginePaused();
     error PolicyCheckFailed(uint256 policyId);
     error PolicyDoesNotExist(uint256 policyId);
     error PolicyInactive(uint256 policyId);
@@ -48,6 +50,7 @@ contract SatisfyPolicyEngine is IPolicyEngine, Ownable {
     );
     event PolicyWindowUpdated(uint256 indexed policyId, uint64 startTime, uint64 endTime);
     event ProofConsumed(uint256 indexed policyId, address indexed user, bytes32 indexed replayKey, bytes32 nullifier);
+    event PauseUpdated(bool paused);
 
     modifier onlyAuthorizedConsumer() {
         if (!authorizedConsumers[msg.sender]) revert NotAuthorizedConsumer();
@@ -77,6 +80,11 @@ contract SatisfyPolicyEngine is IPolicyEngine, Ownable {
         uint64 oldEpoch = currentEpoch;
         currentEpoch = newEpoch;
         emit EpochUpdated(oldEpoch, newEpoch);
+    }
+
+    function setPaused(bool nextPaused) external onlyOwner {
+        paused = nextPaused;
+        emit PauseUpdated(nextPaused);
     }
 
     function createPolicy(
@@ -163,6 +171,7 @@ contract SatisfyPolicyEngine is IPolicyEngine, Ownable {
         onlyAuthorizedConsumer
         returns (bool)
     {
+        if (paused) revert PolicyEnginePaused();
         Policy storage policy = policies[policyId];
         if (policy.predicates.length == 0) revert PolicyDoesNotExist(policyId);
         if (!_isPolicyActive(policy)) revert PolicyInactive(policyId);
@@ -183,6 +192,7 @@ contract SatisfyPolicyEngine is IPolicyEngine, Ownable {
         view
         returns (bool)
     {
+        if (paused) return false;
         Policy storage policy = policies[policyId];
         if (policy.predicates.length == 0) return false;
         if (!_isPolicyActive(policy)) return false;

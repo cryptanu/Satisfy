@@ -117,6 +117,33 @@ contract SatisfyPolicyEngineTest {
         require(engine.currentEpoch() == 2, "epoch should update");
     }
 
+    function testPausedEngineDisablesSatisfiesAndConsume() public {
+        uint256 policyId = _createAndPolicy();
+        SatisfyTypes.ProofBundle memory bundle =
+            _bundleTwoProofs(TAG_HUMAN, TAG_DAO, bytes32("n8"), engine.currentEpoch());
+
+        engine.setPaused(true);
+        bool viewResult = engine.satisfies(policyId, USER, bundle);
+        require(!viewResult, "paused engine should return false for satisfies");
+
+        (bool consumeResult,) =
+            address(engine).call(abi.encodeWithSelector(engine.validateAndConsume.selector, policyId, USER, bundle));
+        require(!consumeResult, "paused engine should reject consume");
+    }
+
+    function testMalformedProofPayloadFailsSafely() public {
+        uint256 policyId = _createAndPolicy();
+        SatisfyTypes.Proof[] memory proofs = new SatisfyTypes.Proof[](2);
+        proofs[0] = SatisfyTypes.Proof({adapterId: ADAPTER_WORLD, payload: hex"1234"});
+        proofs[1] = SatisfyTypes.Proof({adapterId: ADAPTER_SELF, payload: abi.encode(TAG_DAO, USER)});
+
+        SatisfyTypes.ProofBundle memory bundle =
+            SatisfyTypes.ProofBundle({proofs: proofs, nullifier: bytes32("n9"), epoch: engine.currentEpoch()});
+
+        bool ok = engine.satisfies(policyId, USER, bundle);
+        require(!ok, "malformed adapter payload should fail policy");
+    }
+
     function _createAndPolicy() internal returns (uint256 policyId) {
         SatisfyTypes.Predicate[] memory predicates = new SatisfyTypes.Predicate[](2);
         predicates[0] = SatisfyTypes.Predicate({adapterId: ADAPTER_WORLD, condition: abi.encode(TAG_HUMAN)});

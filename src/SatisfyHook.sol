@@ -10,11 +10,14 @@ contract SatisfyHook is Ownable {
 
     mapping(bytes32 => uint256) public poolPolicy;
     mapping(address => bool) public authorizedCallers;
+    bool public paused;
 
     error HookCallerNotAuthorized();
+    error HookPaused();
     error PoolPolicyNotSet(bytes32 poolId);
 
     event HookCallerUpdated(address indexed caller, bool allowed);
+    event HookPauseUpdated(bool paused);
     event PoolPolicyUpdated(bytes32 indexed poolId, uint256 indexed policyId);
     event PolicyConsumed(bytes32 indexed poolId, address indexed user, uint256 indexed policyId, bytes4 hookSelector);
 
@@ -37,6 +40,11 @@ contract SatisfyHook is Ownable {
     function setHookCaller(address caller, bool allowed) external onlyOwner {
         authorizedCallers[caller] = allowed;
         emit HookCallerUpdated(caller, allowed);
+    }
+
+    function setPaused(bool nextPaused) external onlyOwner {
+        paused = nextPaused;
+        emit HookPauseUpdated(nextPaused);
     }
 
     function setPoolPolicy(bytes32 poolId, uint256 policyId) external onlyOwner {
@@ -65,6 +73,7 @@ contract SatisfyHook is Ownable {
     function _enforce(bytes32 poolId, address sender, SatisfyTypes.ProofBundle calldata bundle, bytes4 selector)
         internal
     {
+        if (paused) revert HookPaused();
         uint256 policyId = poolPolicy[poolId];
         if (policyId == 0) revert PoolPolicyNotSet(poolId);
 

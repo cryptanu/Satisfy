@@ -10,8 +10,16 @@ contract ExternalCaller {
         (success,) = address(engine).call(abi.encodeWithSelector(engine.setEpoch.selector, epoch));
     }
 
+    function callSetEnginePaused(SatisfyPolicyEngine engine, bool paused) external returns (bool success) {
+        (success,) = address(engine).call(abi.encodeWithSelector(engine.setPaused.selector, paused));
+    }
+
     function callSetPoolPolicy(SatisfyHook hook, bytes32 poolId, uint256 policyId) external returns (bool success) {
         (success,) = address(hook).call(abi.encodeWithSelector(hook.setPoolPolicy.selector, poolId, policyId));
+    }
+
+    function callSetHookPaused(SatisfyHook hook, bool paused) external returns (bool success) {
+        (success,) = address(hook).call(abi.encodeWithSelector(hook.setPaused.selector, paused));
     }
 
     function callBeforeSwap(SatisfyHook hook, bytes32 poolId, address sender, SatisfyTypes.ProofBundle calldata bundle)
