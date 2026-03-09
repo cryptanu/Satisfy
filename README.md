@@ -66,6 +66,90 @@ This is the Satisfy thesis in production terms:
   - Safe-compatible proposer/executor timelock.
   - Intended to be role admin for governance hardening.
 
+## Architecture Diagram
+
+```text
+                                    +----------------------+
+                                    |   World ID Verifier  |
+                                    +----------+-----------+
+                                               |
+                                               v
++-------------------+   proofs   +------------+-------------+
+| User Wallet + UI  +----------->|  SatisfyHook (Unichain) |
++-------------------+            +------------+-------------+
+                                               |
+                                               v
+                                  +------------+-------------+
+                                  | SatisfyPolicyEngine      |
+                                  | (policy + replay checks) |
+                                  +------+--------------+-----+
+                                         |              |
+                                         v              v
+                               +---------+--+     +-----+------------------+
+                               |WorldIdAdapter|     |SelfAdapter            |
+                               +---------+----+     +-----+-----------------+
+                                         |                |
+                                         |                v
+                                         |      +---------+------------------+
+                                         |      |SelfAttestationRegistry     |
+                                         |      |(bridged attestations)      |
+                                         |      +---------+-------------------+
+                                         |                |
+                                         |         events v
+                                         |      +---------+-------------------+
+                                         |      |Reactive Network (Lasna)     |
+                                         |      |SatisfyLasnaReactiveProcessor|
+                                         |      +---------+-------------------+
+                                         |                |
+                                         |       callback v
+                                         |      +---------+-------------------+
+                                         |      |SatisfyReactiveCallbackReceiver|
+                                         |      +---------+-------------------+
+                                         |                |
+                                         |                v
+                                         |      +---------+-------------------+
+                                         |      |SatisfyReactiveGateway       |
+                                         |      +---------+-------------------+
+                                         |                |
+                                         |                v
+                                         |      +---------+-------------------+
+                                         +----->|SatisfyAutomationModule      |
+                                                +---------+-------------------+
+                                                          |
+                                                +---------+-------------------+
+                                                |Policy/Hook lifecycle updates|
+                                                +-----------------------------+
+```
+
+## Mermaid End-to-End Flow
+
+```mermaid
+flowchart LR
+  U[User Wallet] --> FE[Frontend dApp]
+  FE --> H[SatisfyHook<br/>Unichain]
+  H --> PE[SatisfyPolicyEngine]
+
+  PE --> WA[WorldIdAdapter]
+  WA --> WV[World ID Verifier]
+
+  PE --> SA[SelfAdapter]
+  SA --> SR[SelfAttestationRegistry]
+
+  SELF[Self Provider / Bridge Relay] --> SR
+
+  SR -- AttestationRevoked / TrustedSignerUpdated --> LP[SatisfyLasnaReactiveProcessor<br/>Reactive Lasna]
+  LP --> CP[Reactive Callback Proxy<br/>Unichain]
+  CP --> CR[SatisfyReactiveCallbackReceiver]
+  CR --> RG[SatisfyReactiveGateway]
+  RG --> AM[SatisfyAutomationModule]
+  AM --> PE
+  AM --> H
+
+  PE --> DEC{Policy satisfied?}
+  DEC -- yes --> EXEC[Swap/Liquidity action executes]
+  DEC -- no --> REJ[Transaction reverts]
+```
+
 ## Local Quickstart
 
 Prereqs:
