@@ -1,4 +1,4 @@
-.PHONY: build test e2e e2e-external deploy-unichain-sepolia deploy-unichain-mainnet unichain-smoke relay-self-mock sync-frontend-artifact ci-real-data ci-unichain-smoke build-realdata-fixture frontend-install frontend-dev frontend-build fmt clean
+.PHONY: build test e2e e2e-external deploy-unichain-sepolia deploy-unichain-mainnet deploy-reactive-pipeline unichain-smoke relay-self-mock reactive-worker reactive-executor sync-frontend-artifact ci-real-data ci-unichain-smoke build-realdata-fixture frontend-install frontend-dev frontend-build fmt clean
 
 build:
 	forge build --offline
@@ -18,11 +18,19 @@ deploy-unichain-sepolia:
 deploy-unichain-mainnet:
 	UNICHAIN_NETWORK=mainnet ./script/deploy_unichain.sh
 
+deploy-reactive-pipeline:
+	./script/deploy_reactive_pipeline.sh deployments/unichain-sepolia.json
+
 unichain-smoke:
 	./script/unichain_smoke.sh deployments/unichain-sepolia.json
 
 relay-self-mock:
 	./script/relay_self_attestation_mock.sh
+
+reactive-worker:
+	./script/reactive_event_executor.sh deployments/unichain-sepolia.json
+
+reactive-executor: reactive-worker
 
 sync-frontend-artifact:
 	./script/sync_frontend_artifact.sh deployments/unichain-sepolia.json

@@ -31,10 +31,15 @@ SELF_ADAPTER_ID="$(jq -r '.selfAdapterId' "$DEPLOYMENT_FILE")"
 SELF_REGISTRY="$(jq -r '.selfRegistry' "$DEPLOYMENT_FILE")"
 AUTOMATION="$(jq -r '.automationModule' "$DEPLOYMENT_FILE")"
 TIMELOCK="$(jq -r '.timelock' "$DEPLOYMENT_FILE")"
+REACTIVE_GATEWAY="$(jq -r '.reactiveGateway // empty' "$DEPLOYMENT_FILE")"
+REACTIVE_WORKER_SIGNER="$(jq -r '.reactiveWorkerSigner // empty' "$DEPLOYMENT_FILE")"
+REACTIVE_CALLBACK_RECEIVER="$(jq -r '.reactiveNetwork.destinationCallbackReceiver // empty' "$DEPLOYMENT_FILE")"
 POLICY_ID="$(jq -r '.policyId' "$DEPLOYMENT_FILE")"
 POOL_ID="$(jq -r '.poolId' "$DEPLOYMENT_FILE")"
 EPOCH="$(jq -r '.epoch' "$DEPLOYMENT_FILE")"
 ROLE_ADMIN_EXPECTED="$(jq -r '.governance.roleAdmin' "$DEPLOYMENT_FILE")"
+REACTIVE_EXECUTOR_EXPECTED="$(jq -r '.governance.reactiveExecutor // empty' "$DEPLOYMENT_FILE")"
+REACTIVE_GATEWAY_OWNER_EXPECTED="$(jq -r '.governance.reactiveGatewayOwner // empty' "$DEPLOYMENT_FILE")"
 TIMELOCK_PROPOSER="$(jq -r '.governance.timelock.proposer' "$DEPLOYMENT_FILE")"
 TIMELOCK_EXECUTOR="$(jq -r '.governance.timelock.executor' "$DEPLOYMENT_FILE")"
 
@@ -83,6 +88,40 @@ assert_eq "$(call_view "$ENGINE" "owner()(address)")" "$AUTOMATION" "PolicyEngin
 assert_eq "$(call_view "$HOOK" "owner()(address)")" "$AUTOMATION" "Hook owner"
 assert_eq "$(call_view "$SELF_REGISTRY" "owner()(address)")" "$AUTOMATION" "SelfRegistry owner"
 assert_eq "$(call_view "$AUTOMATION" "roleAdmin()(address)")" "$ROLE_ADMIN_EXPECTED" "Automation roleAdmin"
+
+if [[ -n "$REACTIVE_GATEWAY" && "$REACTIVE_GATEWAY" != "null" ]]; then
+  reactive_executor_role="$(call_view "$AUTOMATION" "REACTIVE_EXECUTOR_ROLE()(bytes32)")"
+  if [[ -z "$REACTIVE_EXECUTOR_EXPECTED" || "$REACTIVE_EXECUTOR_EXPECTED" == "null" ]]; then
+    REACTIVE_EXECUTOR_EXPECTED="$REACTIVE_GATEWAY"
+  fi
+  reactive_executor_ok="$(call_view "$AUTOMATION" "hasRole(bytes32,address)(bool)" "$reactive_executor_role" "$REACTIVE_EXECUTOR_EXPECTED")"
+  if [[ "$reactive_executor_ok" != "true" ]]; then
+    echo "automation reactive executor is not authorized: $REACTIVE_EXECUTOR_EXPECTED" >&2
+    exit 1
+  fi
+
+  assert_eq "$(call_view "$REACTIVE_GATEWAY" "automationModule()(address)")" "$AUTOMATION" "ReactiveGateway automationModule"
+
+  if [[ -n "$REACTIVE_GATEWAY_OWNER_EXPECTED" && "$REACTIVE_GATEWAY_OWNER_EXPECTED" != "null" ]]; then
+    assert_eq "$(call_view "$REACTIVE_GATEWAY" "owner()(address)")" "$REACTIVE_GATEWAY_OWNER_EXPECTED" "ReactiveGateway owner"
+  fi
+
+  if [[ -n "$REACTIVE_WORKER_SIGNER" && "$REACTIVE_WORKER_SIGNER" != "null" ]]; then
+    worker_ok="$(call_view "$REACTIVE_GATEWAY" "trustedWorkers(address)(bool)" "$REACTIVE_WORKER_SIGNER")"
+    if [[ "$worker_ok" != "true" ]]; then
+      echo "reactive worker signer is not trusted: $REACTIVE_WORKER_SIGNER" >&2
+      exit 1
+    fi
+  fi
+
+  if [[ -n "$REACTIVE_CALLBACK_RECEIVER" && "$REACTIVE_CALLBACK_RECEIVER" != "null" ]]; then
+    callback_ok="$(call_view "$REACTIVE_GATEWAY" "authorizedReactiveCallbacks(address)(bool)" "$REACTIVE_CALLBACK_RECEIVER")"
+    if [[ "$callback_ok" != "true" ]]; then
+      echo "reactive callback receiver is not authorized on gateway: $REACTIVE_CALLBACK_RECEIVER" >&2
+      exit 1
+    fi
+  fi
+fi
 
 if [[ "$TIMELOCK" != "null" && "$TIMELOCK" != "" ]]; then
   if [[ "$TIMELOCK_PROPOSER" != "null" && "$TIMELOCK_PROPOSER" != "" ]]; then

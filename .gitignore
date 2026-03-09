@@ -11,6 +11,8 @@ frontend/.env.local
 
 # Logs
 *.log
+.reactive_executor_state.json
+.reactive_worker_state.json
 
 # Frontend artifacts
 frontend/node_modules/

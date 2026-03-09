@@ -11,6 +11,8 @@ ANVIL_LOG="${ANVIL_LOG:-/tmp/satisfy-anvil.log}"
 
 DEPLOYER_PK="${DEPLOYER_PK:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
 SELF_SIGNER_PK="${SELF_SIGNER_PK:-0x1000000000000000000000000000000000000000000000000000000000000001}"
+REACTIVE_WORKER_PK="${REACTIVE_WORKER_PK:-0x2000000000000000000000000000000000000000000000000000000000000002}"
+RELAYER_PK="${RELAYER_PK:-$DEPLOYER_PK}"
 
 SATISFY_USER="${SATISFY_USER:-0x0000000000000000000000000000000000001234}"
 WORLD_POLICY_CONTEXT="${WORLD_POLICY_CONTEXT:-$(cast keccak "ANVIL_WORLD_POLICY_CONTEXT")}" 
@@ -56,21 +58,31 @@ wait_for_rpc() {
 }
 
 send_tx() {
-  local to="$1"
-  local sig="$2"
-  shift 2
+  send_tx_with_key "$DEPLOYER_PK" "$@"
+}
+
+send_tx_with_key() {
+  local private_key="$1"
+  local to="$2"
+  local sig="$3"
+  shift 3
 
   cast send "$to" "$sig" "$@" \
     --rpc-url "$RPC_URL" \
-    --private-key "$DEPLOYER_PK" >/dev/null
+    --private-key "$private_key" >/dev/null
 }
 
 send_expect_revert() {
-  local to="$1"
-  local sig="$2"
-  shift 2
+  send_expect_revert_with_key "$DEPLOYER_PK" "$@"
+}
 
-  if cast send "$to" "$sig" "$@" --rpc-url "$RPC_URL" --private-key "$DEPLOYER_PK" >/dev/null 2>&1; then
+send_expect_revert_with_key() {
+  local private_key="$1"
+  local to="$2"
+  local sig="$3"
+  shift 3
+
+  if cast send "$to" "$sig" "$@" --rpc-url "$RPC_URL" --private-key "$private_key" >/dev/null 2>&1; then
     echo "expected revert but tx succeeded for $sig" >&2
     exit 1
   fi
@@ -131,6 +143,7 @@ fi
 
 DEPLOYER_ADDR=$(cast wallet address --private-key "$DEPLOYER_PK")
 SELF_SIGNER_ADDR=$(cast wallet address --private-key "$SELF_SIGNER_PK")
+REACTIVE_WORKER_ADDR=$(cast wallet address --private-key "$REACTIVE_WORKER_PK")
 
 log "Building contracts"
 (cd "$ROOT_DIR" && forge build --offline >/dev/null)
@@ -143,6 +156,7 @@ WORLD_ADAPTER=$(deploy_contract "src/adapters/WorldIdAdapter.sol:WorldIdAdapter"
 SELF_ADAPTER=$(deploy_contract "src/adapters/SelfAdapter.sol:SelfAdapter" "$DEPLOYER_ADDR" "$SELF_REGISTRY")
 HOOK=$(deploy_contract "src/SatisfyHook.sol:SatisfyHook" "$DEPLOYER_ADDR" "$ENGINE" "$DEPLOYER_ADDR")
 TIMELOCK=$(deploy_contract "src/SatisfyTimelock.sol:SatisfyTimelock" "$DEPLOYER_ADDR" 0 "$DEPLOYER_ADDR" "$DEPLOYER_ADDR")
+GATEWAY=$(deploy_contract "src/SatisfyReactiveGateway.sol:SatisfyReactiveGateway" "$DEPLOYER_ADDR" "0x0000000000000000000000000000000000000000" "$REACTIVE_WORKER_ADDR")
 AUTOMATION=$(deploy_contract \
   "src/SatisfyAutomationModule.sol:SatisfyAutomationModule" \
   "$DEPLOYER_ADDR" \
@@ -150,13 +164,15 @@ AUTOMATION=$(deploy_contract \
   "$DEPLOYER_ADDR" \
   "$DEPLOYER_ADDR" \
   "$DEPLOYER_ADDR" \
-  "$DEPLOYER_ADDR" \
+  "$GATEWAY" \
   "$DEPLOYER_ADDR" \
   "$ENGINE" \
   "$HOOK" \
   "$WORLD_ADAPTER" \
   "$SELF_ADAPTER" \
   "$SELF_REGISTRY")
+
+send_tx "$GATEWAY" "setAutomationModule(address)" "$AUTOMATION"
 
 WORLD_ID=$(cast keccak "WORLD_ID")
 SELF_ID=$(cast keccak "SELF")
@@ -234,9 +250,28 @@ send_tx "$HOOK" "beforeSwap(bytes32,address,((bytes32,bytes)[],bytes32,uint64))(
 log "Checking replay protection (expected revert)"
 send_expect_revert "$HOOK" "beforeSwap(bytes32,address,((bytes32,bytes)[],bytes32,uint64))(bytes4)" "$POOL_ID" "$SATISFY_USER" "$BUNDLE_1"
 
-log "Rotating epoch via reactive role and submitting fresh bundle"
-ROTATE_JOB=$(cast keccak "job-rotate-epoch-2")
-send_tx "$AUTOMATION" "reactiveSetEpoch(bytes32,uint64)" "$ROTATE_JOB" 2
+ACTION_SET_EPOCH=$(call_view "$GATEWAY" "ACTION_SET_EPOCH()(uint8)")
+ACTION_PAUSE_ALL=$(call_view "$GATEWAY" "ACTION_PAUSE_ALL()(uint8)")
+
+submit_gateway_job() {
+  local action="$1"
+  local payload="$2"
+  local reason="$3"
+  local job_id nonce valid_until job digest signature
+
+  job_id=$(cast keccak "$reason")
+  nonce=$(call_view "$GATEWAY" "nextNonce(address)(uint256)" "$REACTIVE_WORKER_ADDR")
+  valid_until=$(( $(date +%s) + 3600 ))
+  job="($job_id,$action,$payload,$valid_until,$nonce)"
+  digest=$(call_view "$GATEWAY" "jobDigest((bytes32,uint8,bytes,uint64,uint256))(bytes32)" "$job")
+  signature=$(cast wallet sign --private-key "$REACTIVE_WORKER_PK" --no-hash "$digest")
+
+  send_tx_with_key "$RELAYER_PK" "$GATEWAY" "execute((bytes32,uint8,bytes,uint64,uint256),bytes)" "$job" "$signature"
+}
+
+log "Rotating epoch via reactive gateway worker job and submitting fresh bundle"
+SET_EPOCH_PAYLOAD=$(cast abi-encode "f(uint64)" 2)
+submit_gateway_job "$ACTION_SET_EPOCH" "$SET_EPOCH_PAYLOAD" "job-rotate-epoch-2"
 NEW_EPOCH=$(call_view "$ENGINE" "currentEpoch()(uint64)")
 NULLIFIER_2=$(cast keccak "nullifier-2")
 BUNDLE_2="(${PROOFS},${NULLIFIER_2},${NEW_EPOCH})"
@@ -249,10 +284,12 @@ fi
 
 send_tx "$HOOK" "beforeSwap(bytes32,address,((bytes32,bytes)[],bytes32,uint64))(bytes4)" "$POOL_ID" "$SATISFY_USER" "$BUNDLE_2"
 
-log "Pausing engine + hook via emergency role and checking enforcement"
-send_tx "$AUTOMATION" "pauseAll(bool)" true
+log "Pausing engine + hook via reactive gateway worker job and checking enforcement"
+PAUSE_PAYLOAD=$(cast abi-encode "f(bool)" true)
+submit_gateway_job "$ACTION_PAUSE_ALL" "$PAUSE_PAYLOAD" "job-pause-all-true"
 send_expect_revert "$HOOK" "beforeSwap(bytes32,address,((bytes32,bytes)[],bytes32,uint64))(bytes4)" "$POOL_ID" "$SATISFY_USER" "$BUNDLE_2"
-send_tx "$AUTOMATION" "pauseAll(bool)" false
+UNPAUSE_PAYLOAD=$(cast abi-encode "f(bool)" false)
+submit_gateway_job "$ACTION_PAUSE_ALL" "$UNPAUSE_PAYLOAD" "job-pause-all-false"
 
 log "E2E succeeded"
 log "PolicyEngine:  $ENGINE"
@@ -263,6 +300,7 @@ log "SelfRegistry:  $SELF_REGISTRY"
 log "WorldVerifier: $WORLD_VERIFIER"
 log "Timelock:      $TIMELOCK"
 log "Automation:    $AUTOMATION"
+log "Gateway:       $GATEWAY"
 log "PolicyId:      $POLICY_ID"
 log "PoolId:        $POOL_ID"
 log "Epoch:         $NEW_EPOCH"

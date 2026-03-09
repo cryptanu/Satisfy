@@ -29,6 +29,8 @@ esac
 RPC_URL="${RPC_URL:-$DEFAULT_RPC_URL}"
 DEPLOYER_PK="${DEPLOYER_PK:-}"
 MIN_REQUIRED_WEI="${MIN_REQUIRED_WEI:-1000000000000000}" # 0.001 ETH floor
+RPC_TIMEOUT="${RPC_TIMEOUT:-120}"
+ZERO_ADDRESS="0x0000000000000000000000000000000000000000"
 
 if [[ -z "$DEPLOYER_PK" ]]; then
   echo "DEPLOYER_PK is required." >&2
@@ -97,7 +99,9 @@ TIMELOCK_ADMIN="${TIMELOCK_ADMIN:-$DEFAULT_GOV_ADDR}"
 TIMELOCK_PROPOSER="${TIMELOCK_PROPOSER:-$DEFAULT_GOV_ADDR}"
 TIMELOCK_EXECUTOR="${TIMELOCK_EXECUTOR:-$DEFAULT_GOV_ADDR}"
 ROLE_ADMIN="${ROLE_ADMIN:-}"
-REACTIVE_EXECUTOR="${REACTIVE_EXECUTOR:-$DEPLOYER_ADDR}"
+LEGACY_REACTIVE_EXECUTOR="${REACTIVE_EXECUTOR:-}"
+REACTIVE_WORKER_SIGNER="${REACTIVE_WORKER_SIGNER:-$DEPLOYER_ADDR}"
+REACTIVE_GATEWAY_OWNER="${REACTIVE_GATEWAY_OWNER:-$AUTOMATION_OWNER}"
 EMERGENCY_ACTOR="${EMERGENCY_ACTOR:-$DEFAULT_GOV_ADDR}"
 SELF_TRUSTED_SIGNER="${SELF_TRUSTED_SIGNER:-$DEPLOYER_ADDR}"
 
@@ -121,8 +125,10 @@ fi
 
 log "Network: $UNICHAIN_NETWORK ($NETWORK_LABEL, chainId=$CHAIN_ID)"
 log "RPC URL: $RPC_URL"
+log "RPC timeout: ${RPC_TIMEOUT}s"
 log "Deployer: $DEPLOYER_ADDR"
 log "Deployer balance: ${DEPLOYER_BALANCE_ETH} ETH"
+log "Reactive worker signer: $REACTIVE_WORKER_SIGNER"
 if [[ -n "$SAFE_ADDRESS" ]]; then
   log "Safe address: $SAFE_ADDRESS (used as governance default)"
 fi
@@ -161,6 +167,7 @@ deploy_contract() {
   local cmd=(
     forge create "$contract_id"
     --rpc-url "$RPC_URL"
+    --rpc-timeout "$RPC_TIMEOUT"
     --chain "$CHAIN_ID"
     --gas-price "$TX_GAS_PRICE_WEI"
     --from "$DEPLOYER_ADDR"
@@ -226,6 +233,7 @@ send_tx() {
   tx_nonce="$NEXT_NONCE"
   cast send "$to" "$sig" "$@" \
     --rpc-url "$RPC_URL" \
+    --rpc-timeout "$RPC_TIMEOUT" \
     --chain "$CHAIN_ID" \
     --gas-price "$TX_GAS_PRICE_WEI" \
     --from "$DEPLOYER_ADDR" \
@@ -239,17 +247,41 @@ call_view() {
   local sig="$2"
   shift 2
 
-  cast call "$to" "$sig" "$@" --rpc-url "$RPC_URL"
+  cast call "$to" "$sig" "$@" --rpc-url "$RPC_URL" --rpc-timeout "$RPC_TIMEOUT"
 }
 
 assert_owner() {
   local target="$1"
   local expected="$2"
   local label="$3"
+  local actual actual_lower expected_lower deployer_lower
+  expected_lower="$(to_lower "$expected")"
+  deployer_lower="$(to_lower "$DEPLOYER_ADDR")"
 
-  local actual
-  actual=$(call_view "$target" "owner()(address)")
-  if [[ "$(to_lower "$actual")" != "$(to_lower "$expected")" ]]; then
+  # RPCs can lag right after a transfer; poll a few times before failing.
+  for _ in {1..8}; do
+    actual=$(call_view "$target" "owner()(address)")
+    actual_lower="$(to_lower "$actual")"
+    if [[ "$actual_lower" == "$expected_lower" ]]; then
+      return 0
+    fi
+    sleep 2
+  done
+
+  if [[ "$actual_lower" == "$deployer_lower" ]]; then
+    log "Owner mismatch for $label; deployer still owner after polling. Retrying transferOwnership."
+    send_tx "$target" "transferOwnership(address)" "$expected"
+    for _ in {1..6}; do
+      actual=$(call_view "$target" "owner()(address)")
+      actual_lower="$(to_lower "$actual")"
+      if [[ "$actual_lower" == "$expected_lower" ]]; then
+        return 0
+      fi
+      sleep 2
+    done
+  fi
+
+  if [[ "$actual_lower" != "$expected_lower" ]]; then
     echo "Owner mismatch for $label." >&2
     echo "Expected owner: $expected" >&2
     echo "Actual owner:   $actual" >&2
@@ -294,6 +326,15 @@ log "Deploying SatisfyTimelock"
 deploy_contract "src/SatisfyTimelock.sol:SatisfyTimelock" "$TIMELOCK_ADMIN" "$TIMELOCK_MIN_DELAY" "$TIMELOCK_PROPOSER" "$TIMELOCK_EXECUTOR"
 TIMELOCK_ADDR="$LAST_DEPLOYED_ADDR"
 
+log "Deploying SatisfyReactiveGateway"
+deploy_contract "src/SatisfyReactiveGateway.sol:SatisfyReactiveGateway" "$DEPLOYER_ADDR" "$ZERO_ADDRESS" "$REACTIVE_WORKER_SIGNER"
+REACTIVE_GATEWAY_ADDR="$LAST_DEPLOYED_ADDR"
+REACTIVE_EXECUTOR_ADDR="$REACTIVE_GATEWAY_ADDR"
+
+if [[ -n "$LEGACY_REACTIVE_EXECUTOR" ]]; then
+  log "Ignoring legacy REACTIVE_EXECUTOR=$LEGACY_REACTIVE_EXECUTOR; using reactive gateway $REACTIVE_GATEWAY_ADDR"
+fi
+
 if [[ -z "$ROLE_ADMIN" ]]; then
   ROLE_ADMIN="$TIMELOCK_ADDR"
 fi
@@ -310,7 +351,7 @@ deploy_contract \
   "$POLICY_MANAGER" \
   "$ADAPTER_MANAGER" \
   "$HOOK_MANAGER" \
-  "$REACTIVE_EXECUTOR" \
+  "$REACTIVE_EXECUTOR_ADDR" \
   "$EMERGENCY_ACTOR" \
   "$ENGINE_ADDR" \
   "$HOOK_ADDR" \
@@ -318,6 +359,9 @@ deploy_contract \
   "$SELF_ADAPTER_ADDR" \
   "$SELF_REGISTRY_ADDR"
 AUTOMATION_MODULE_ADDR="$LAST_DEPLOYED_ADDR"
+
+log "Wiring reactive gateway to automation module"
+send_tx "$REACTIVE_GATEWAY_ADDR" "setAutomationModule(address)" "$AUTOMATION_MODULE_ADDR"
 
 log "Registering adapters and authorizing hook"
 send_tx "$ENGINE_ADDR" "registerAdapter(bytes32,address)" "$WORLD_ADAPTER_ID" "$WORLD_ADAPTER_ADDR"
@@ -331,7 +375,19 @@ PREDICATES="[(${WORLD_ADAPTER_ID},${WORLD_CONDITION}),(${SELF_ADAPTER_ID},${SELF
 log "Creating default policy"
 send_tx "$ENGINE_ADDR" "createPolicy(uint8,(bytes32,bytes)[],uint64,uint64,bool)" 0 "$PREDICATES" "$POLICY_START_TIME" "$POLICY_END_TIME" "$POLICY_ACTIVE"
 
-POLICY_ID=$(call_view "$ENGINE_ADDR" "policyCount()(uint256)")
+POLICY_COUNT=0
+for _ in {1..8}; do
+  POLICY_COUNT=$(call_view "$ENGINE_ADDR" "policyCount()(uint256)")
+  if (( POLICY_COUNT > 0 )); then
+    break
+  fi
+  sleep 2
+done
+if (( POLICY_COUNT == 0 )); then
+  echo "policyCount is zero after createPolicy, cannot derive policyId." >&2
+  exit 1
+fi
+POLICY_ID="$POLICY_COUNT"
 
 log "Binding policy to pool"
 send_tx "$HOOK_ADDR" "setPoolPolicy(bytes32,uint256)" "$POOL_ID" "$POLICY_ID"
@@ -342,12 +398,14 @@ send_tx "$HOOK_ADDR" "transferOwnership(address)" "$AUTOMATION_MODULE_ADDR"
 send_tx "$WORLD_ADAPTER_ADDR" "transferOwnership(address)" "$AUTOMATION_MODULE_ADDR"
 send_tx "$SELF_ADAPTER_ADDR" "transferOwnership(address)" "$AUTOMATION_MODULE_ADDR"
 send_tx "$SELF_REGISTRY_ADDR" "transferOwnership(address)" "$AUTOMATION_MODULE_ADDR"
+send_tx "$REACTIVE_GATEWAY_ADDR" "transferOwnership(address)" "$REACTIVE_GATEWAY_OWNER"
 
 assert_owner "$ENGINE_ADDR" "$AUTOMATION_MODULE_ADDR" "SatisfyPolicyEngine"
 assert_owner "$HOOK_ADDR" "$AUTOMATION_MODULE_ADDR" "SatisfyHook"
 assert_owner "$WORLD_ADAPTER_ADDR" "$AUTOMATION_MODULE_ADDR" "WorldIdAdapter"
 assert_owner "$SELF_ADAPTER_ADDR" "$AUTOMATION_MODULE_ADDR" "SelfAdapter"
 assert_owner "$SELF_REGISTRY_ADDR" "$AUTOMATION_MODULE_ADDR" "SelfAttestationRegistry"
+assert_owner "$REACTIVE_GATEWAY_ADDR" "$REACTIVE_GATEWAY_OWNER" "SatisfyReactiveGateway"
 
 CURRENT_EPOCH=$(call_view "$ENGINE_ADDR" "currentEpoch()(uint64)")
 
@@ -375,6 +433,8 @@ cat > "$DEPLOYMENT_FILE" <<JSON
   "worldVerifier": "$WORLD_VERIFIER_ADDR",
   "timelock": "$TIMELOCK_ADDR",
   "automationModule": "$AUTOMATION_MODULE_ADDR",
+  "reactiveGateway": "$REACTIVE_GATEWAY_ADDR",
+  "reactiveWorkerSigner": "$REACTIVE_WORKER_SIGNER",
   "worldAdapterId": "$WORLD_ADAPTER_ID",
   "selfAdapterId": "$SELF_ADAPTER_ID",
   "poolId": "$POOL_ID",
@@ -387,7 +447,8 @@ cat > "$DEPLOYMENT_FILE" <<JSON
     "policyManager": "$POLICY_MANAGER",
     "adapterManager": "$ADAPTER_MANAGER",
     "hookManager": "$HOOK_MANAGER",
-    "reactiveExecutor": "$REACTIVE_EXECUTOR",
+    "reactiveExecutor": "$REACTIVE_EXECUTOR_ADDR",
+    "reactiveGatewayOwner": "$REACTIVE_GATEWAY_OWNER",
     "emergencyActor": "$EMERGENCY_ACTOR",
     "timelock": {
       "admin": "$TIMELOCK_ADMIN",
@@ -421,6 +482,7 @@ log "SelfRegistry:      $SELF_REGISTRY_ADDR"
 log "WorldVerifier:     $WORLD_VERIFIER_ADDR"
 log "Timelock:          $TIMELOCK_ADDR"
 log "Automation:        $AUTOMATION_MODULE_ADDR"
+log "ReactiveGateway:   $REACTIVE_GATEWAY_ADDR"
 log "PolicyId:          $POLICY_ID"
 log "PoolId:            $POOL_ID"
 log "Epoch:             $CURRENT_EPOCH"
