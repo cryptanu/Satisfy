@@ -1,4 +1,4 @@
-# Satisfy Runbook (Unichain Sepolia)
+# Satisfy Runbook (Unichain Sepolia + Reactive Lasna)
 
 This runbook demonstrates the hardened Satisfy flow end-to-end.
 
@@ -135,3 +135,28 @@ Optional deployed-testnet smoke lane can also run in CI when these secrets are c
 
 - `UNICHAIN_SMOKE_DEPLOYMENT_B64`
 - `UNICHAIN_SMOKE_RPC_URL`
+
+## 8. Start Reactive Hosted Worker (Optional but Recommended)
+
+```bash
+source .env.unichain
+export REACTIVE_WORKER_PK=0x...
+export REACTIVE_RELAYER_PK=0x...
+./script/reactive_event_executor.sh deployments/unichain-sepolia.json
+```
+
+This worker listens for attestation revocations and signer disable events, then submits signed
+jobs to `SatisfyReactiveGateway`, which dispatches reactive automation functions on-chain.
+
+## 9. Deploy Reactive Network Lasna Integration
+
+```bash
+source .env.unichain
+DEPLOYER_PK=0x... \
+LASNA_DEPLOYER_PK=0x... \
+./script/deploy_reactive_pipeline.sh deployments/unichain-sepolia.json
+```
+
+This keeps core contracts on Unichain and uses Lasna reactive processing for event-driven callbacks.
+
+Reference: [`docs/REACTIVE_NETWORK_LASNA.md`](docs/REACTIVE_NETWORK_LASNA.md)

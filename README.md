@@ -5,30 +5,31 @@
 Satisfy is a credential-aware policy layer for Uniswap v4-style markets.
 It gates participation on verifiable proofs, not wallet identity.
 
-## Story
+## Storyline: Fair Launch Under Fire
 
-A DAO launches a new incentive pool on Unichain Sepolia.
-Within minutes, bots try to farm it with fresh wallets and replayed payloads.
+A DAO spins up a launch pool on Unichain Sepolia.
 
-With Satisfy, the pool is wired to policy, not address lists.
-A real user submits a proof bundle:
+At first block, bot clusters start rotating wallets to farm rewards.
+Normally, each fresh address looks like a fresh participant.
+Satisfy changes the game: access is based on proof, not wallet cosmetics.
 
-- World ID proof for personhood (verified on-chain by the World verifier path)
-- Self claim proof via bridged attestation (read from `SelfAttestationRegistry`)
+A real participant sends a proof bundle:
 
-The hook asks the policy engine in real time.
-If the user satisfies policy for the current epoch, execution proceeds.
-If the proof is stale, replayed, revoked, or out of policy, the transaction fails.
+- World ID personhood proof (checked on-chain through verifier path)
+- Self-derived eligibility attestation (bridged and stored in `SelfAttestationRegistry`)
 
-Governance can then evolve the market safely:
+The hook calls policy in real time before market execution:
 
-- timelocked role-based policy/adapter changes
-- reactive replay-protected automation jobs (epoch rotation, policy windows, emergency pause)
+- valid and in-policy: swap/liquidity action continues
+- stale/replayed/revoked/out-of-policy: transaction is rejected
 
-Satisfy turns DeFi coordination into:
+When risk signals appear (revocations, signer compromise), Reactive automation can rotate epoch or pause enforcement, so governance doesn’t rely on a centralized ops desk to react first.
 
-- minimum disclosure
-- maximum coordination
+This is the Satisfy thesis in production terms:
+
+- prove what matters
+- reveal nothing extra
+- coordinate at market speed
 
 ## Production-Hardened Components
 
@@ -50,12 +51,17 @@ Satisfy turns DeFi coordination into:
   - Context binding to `(chainId, adapter, user, policyCondition)`.
 - `SatisfyAutomationModule`
   - Role-gated control plane with reactive replay-protected jobs.
+  - `REACTIVE_EXECUTOR_ROLE` is granted to `SatisfyReactiveGateway`, not an EOA.
   - Roles:
     - `POLICY_MANAGER_ROLE`
     - `ADAPTER_MANAGER_ROLE`
     - `HOOK_MANAGER_ROLE`
     - `REACTIVE_EXECUTOR_ROLE`
     - `EMERGENCY_ROLE`
+- `SatisfyReactiveGateway`
+  - On-chain ingress for hosted workers.
+  - Verifies signed `JobV1` messages with chain/contract/automation domain separation.
+  - Enforces worker nonce and digest replay protection before dispatching to automation.
 - `SatisfyTimelock`
   - Safe-compatible proposer/executor timelock.
   - Intended to be role admin for governance hardening.
@@ -80,7 +86,7 @@ Run local E2E (deploy + policy + proofs + hook execution + replay + epoch + paus
 ./script/anvil_e2e.sh
 ```
 
-## Unichain Deployment (Primary Target)
+## Unichain Deployment
 
 ```bash
 cp script/.env.unichain.example .env.unichain
@@ -98,11 +104,58 @@ Deployment output includes:
 - core contract addresses
 - governance/timelock role config
 - verifier + registry config
-- `deployments/unichain-<network>.json`
+- deployment artifact JSON
 
 Safe-first default:
 
 - set `SAFE_ADDRESS` in `.env.unichain` to use Safe as default for automation owner, timelock admin/proposer/executor, and emergency actor.
+
+## Reactive Network Integration (Lasna Event Plane)
+
+Core Satisfy contracts stay on Unichain. Reactive Network is used to watch emitted events and execute callbacks back into Unichain:
+
+1. Deploy core contracts to Unichain (`deploy_unichain.sh`).
+2. Deploy reactive integration contracts:
+   - `SatisfyReactiveCallbackReceiver` on Unichain
+   - `SatisfyLasnaReactiveProcessor` on Lasna testnet
+3. Wire callback authorization on `SatisfyReactiveGateway`.
+
+```bash
+source .env.unichain
+DEPLOYER_PK=0x... \
+LASNA_DEPLOYER_PK=0x... \
+./script/deploy_reactive_pipeline.sh deployments/unichain-sepolia.json
+```
+
+Default Lasna RPC: `https://lasna-rpc.rnk.dev`.
+
+Reference: [`docs/REACTIVE_NETWORK_LASNA.md`](docs/REACTIVE_NETWORK_LASNA.md)
+
+### Execution Path
+
+1. `SelfAttestationRegistry` emits lifecycle events on Unichain.
+2. `SatisfyLasnaReactiveProcessor` (Lasna) subscribes and emits Reactive callbacks.
+3. Reactive callback proxy calls `SatisfyReactiveCallbackReceiver` on Unichain.
+4. Receiver dispatches into `SatisfyReactiveGateway.executeFromReactiveCallback(...)`.
+5. Gateway enforces callback authorization + replay guards and executes automation action.
+
+### Live Testnet Snapshot (March 9, 2026)
+
+Unichain Sepolia (`chainId=1301`):
+
+- `PolicyEngine`: `0x7d4A7CD841ADF25a6b044066Aa8cd5f16B326e6F`
+- `Hook`: `0xc7c1fBcCe7A0Bc8bE8bb4F58F1177F3B67343741`
+- `SelfRegistry`: `0xD88C3EaC6DE6583218EA46862f8fEB5506E470f1`
+- `ReactiveGateway`: `0xC70B4A3525c1Cd6eBef2715FE4ed942D79aCd38F`
+- `ReactiveCallbackReceiver`: `0x236baa6AEb458d7b91d7863ccE06FDd34020AecE`
+
+Reactive Lasna (`chainId=5318007`):
+
+- `SatisfyLasnaReactiveProcessor`: `0x2Be10838793F745f0E3550193C4720e9870e9E76`
+
+Current callback proxy used for Unichain Sepolia:
+
+- `destinationCallbackSender`: `0x4d7d194675E6844f7E23C1e830d6A03071DF4f4D`
 
 ## Relay Mock (Bridged Attestation Path)
 
@@ -119,6 +172,26 @@ CONTEXT=0x... \
 ```
 
 This outputs a ready-to-use `VITE_SELF_PROOF_PAYLOAD` value for frontend tests.
+
+## Reactive Hosted Worker Pipeline
+
+Run the worker loop that watches registry events and submits signed jobs to `SatisfyReactiveGateway.execute(...)`:
+
+```bash
+source .env.unichain
+export REACTIVE_WORKER_PK=0x...
+export REACTIVE_RELAYER_PK=0x...
+./script/reactive_event_executor.sh deployments/unichain-sepolia.json
+```
+
+Behavior:
+
+- revocation events can rotate epoch
+- signer disable events can trigger emergency pause
+- optional timer can rotate epoch
+- all lifecycle mutations flow through gateway-verified worker signatures
+
+Reference: [`docs/REACTIVE_EXECUTOR.md`](docs/REACTIVE_EXECUTOR.md)
 
 ## Unichain Smoke Validation
 
@@ -207,12 +280,14 @@ To build a fixture JSON + base64 value locally:
 - `src/` contracts
 - `test/` unit + integration + replay tests
 - `script/deploy_unichain.sh` Unichain deployment pipeline
+- `script/deploy_reactive_pipeline.sh` deploys Lasna reactive processor + Unichain callback receiver
 - `script/anvil_e2e.sh` local full-path protocol test
 - `script/relay_self_attestation_mock.sh` mock bridge relay submission
 - `script/ci_real_data_replay.sh` CI replay lane
 - `script/ci_unichain_smoke.sh` CI smoke runner for deployed Unichain artifact
 - `script/build_realdata_fixture.sh` fixture bundler for CI secret generation
 - `script/unichain_smoke.sh` testnet smoke assertions + fixture replay
+- `script/reactive_event_executor.sh` hosted-worker compatible event daemon (submits signed jobs to gateway)
 - `frontend/` React + Vite app
 - `docs/` runbooks and deployment docs
 

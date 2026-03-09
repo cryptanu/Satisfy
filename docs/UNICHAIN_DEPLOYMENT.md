@@ -29,7 +29,8 @@ Governance/timelock controls:
 - `TIMELOCK_ADMIN`
 - `TIMELOCK_PROPOSER`
 - `TIMELOCK_EXECUTOR`
-- `REACTIVE_EXECUTOR`
+- `REACTIVE_WORKER_SIGNER`
+- `REACTIVE_GATEWAY_OWNER`
 - `EMERGENCY_ACTOR`
 
 Role holders default to deployed timelock if omitted:
@@ -53,6 +54,7 @@ UNICHAIN_NETWORK=sepolia ./script/deploy_unichain.sh
 - `SelfAdapter`
 - `SatisfyHook`
 - `SatisfyTimelock`
+- `SatisfyReactiveGateway`
 - `SatisfyAutomationModule`
 
 Then the script:
@@ -67,7 +69,8 @@ Then the script:
 
 Generated file:
 
-- `deployments/unichain-sepolia.json` or `deployments/unichain-mainnet.json`
+- `deployments/unichain-sepolia.json`
+- `deployments/unichain-mainnet.json`
 
 Includes:
 
@@ -104,7 +107,41 @@ To replay fixture data as part of smoke:
   - `SELF_ATTESTATION_SIGNATURE`
   - `RELAYER_PK`
 
-## 7. Troubleshooting
+## 7. Reactive Hosted Worker Pipeline
+
+After deployment, run the worker loop to trigger reactive lifecycle updates from on-chain events.
+The worker signs jobs and relays them through `SatisfyReactiveGateway`.
+
+```bash
+source .env.unichain
+export REACTIVE_WORKER_PK=0x...
+export REACTIVE_RELAYER_PK=0x...
+./script/reactive_event_executor.sh deployments/unichain-sepolia.json
+```
+
+Details: [`docs/REACTIVE_EXECUTOR.md`](docs/REACTIVE_EXECUTOR.md)
+
+## 8. Reactive Network Lasna Integration
+
+To use Reactive Network as the event execution plane (without moving core contracts off Unichain):
+
+```bash
+source .env.unichain
+DEPLOYER_PK=0x... \
+LASNA_DEPLOYER_PK=0x... \
+./script/deploy_reactive_pipeline.sh deployments/unichain-sepolia.json
+```
+
+This deploys:
+
+- `SatisfyReactiveCallbackReceiver` on Unichain
+- `SatisfyLasnaReactiveProcessor` on Lasna testnet (`https://lasna-rpc.rnk.dev`)
+
+and wires `SatisfyReactiveGateway.setReactiveCallback(...)`.
+
+Reference: [`docs/REACTIVE_NETWORK_LASNA.md`](docs/REACTIVE_NETWORK_LASNA.md)
+
+## 9. Troubleshooting
 
 ### `DEPLOYER_PK is required`
 
