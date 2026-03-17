@@ -79,6 +79,7 @@ contract SatisfyE2ETest {
     }
 
     function testEndToEndHappyPathReplayAndEpochRotation() public {
+        bytes4 beforeSwapSelector = hook.LEGACY_BEFORE_SWAP_SELECTOR();
         bytes memory worldProof = _worldProofPayload(USER, worldCondition, uint64(block.timestamp + 1 days), 77);
         bytes memory selfProof = _selfProofPayload(USER, selfCondition, 25, true, false, uint64(block.timestamp + 1 days));
 
@@ -89,9 +90,9 @@ contract SatisfyE2ETest {
         require(canParticipate, "policy should be satisfied");
 
         bytes4 selector = hook.beforeSwap(POOL_ID, USER, bundle);
-        require(selector == hook.beforeSwap.selector, "hook should accept proof bundle");
+        require(selector == beforeSwapSelector, "hook should accept proof bundle");
 
-        (bool replay,) = address(hook).call(abi.encodeWithSelector(hook.beforeSwap.selector, POOL_ID, USER, bundle));
+        (bool replay,) = address(hook).call(abi.encodeWithSelector(beforeSwapSelector, POOL_ID, USER, bundle));
         require(!replay, "replay should fail");
 
         engine.setEpoch(2);
@@ -103,10 +104,11 @@ contract SatisfyE2ETest {
             _bundle(worldProof, selfProof, keccak256("nullifier-2"), engine.currentEpoch());
 
         bytes4 epochTwoSelector = hook.beforeSwap(POOL_ID, USER, epochTwoBundle);
-        require(epochTwoSelector == hook.beforeSwap.selector, "new epoch bundle should pass");
+        require(epochTwoSelector == beforeSwapSelector, "new epoch bundle should pass");
     }
 
     function testEndToEndRejectsPolicyMismatchAndExpiredCredentials() public {
+        bytes4 beforeSwapSelector = hook.LEGACY_BEFORE_SWAP_SELECTOR();
         bytes memory worldProof = _worldProofPayload(USER, worldCondition, uint64(block.timestamp + 1 days), 88);
         bytes memory underageSelfProof =
             _selfProofPayload(USER, selfCondition, 16, true, false, uint64(block.timestamp + 1 days));
@@ -118,7 +120,7 @@ contract SatisfyE2ETest {
         require(!underageAllowed, "underage proof should fail policy");
 
         (bool underageSwap,) =
-            address(hook).call(abi.encodeWithSelector(hook.beforeSwap.selector, POOL_ID, USER, underageBundle));
+            address(hook).call(abi.encodeWithSelector(beforeSwapSelector, POOL_ID, USER, underageBundle));
         require(!underageSwap, "hook should reject underage proof");
 
         bytes memory validSelfProof =

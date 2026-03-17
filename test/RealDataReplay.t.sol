@@ -72,7 +72,9 @@ contract RealDataReplayTest {
         require(satisfied, "recorded fixture should satisfy policy");
 
         bytes4 selector = deployed.hook.beforeSwap(POOL_ID, fixture.user, bundle);
-        require(selector == deployed.hook.beforeSwap.selector, "hook should accept recorded fixture bundle");
+        require(
+            selector == deployed.hook.LEGACY_BEFORE_SWAP_SELECTOR(), "hook should accept recorded fixture bundle"
+        );
     }
 
     function _loadFixture() internal returns (FixtureData memory fixture) {

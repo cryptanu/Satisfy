@@ -164,7 +164,7 @@ contract SatisfyAutomationModuleTest {
         });
 
         (bool pausedSwap,) = address(hook).call(
-            abi.encodeWithSelector(hook.beforeSwap.selector, POOL_ID, address(0x1234), bundle)
+            abi.encodeWithSelector(hook.LEGACY_BEFORE_SWAP_SELECTOR(), POOL_ID, address(0x1234), bundle)
         );
         require(!pausedSwap, "beforeSwap should fail while paused");
 

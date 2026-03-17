@@ -26,7 +26,8 @@ contract ExternalCaller {
         external
         returns (bool success)
     {
-        (success,) = address(hook).call(abi.encodeWithSelector(hook.beforeSwap.selector, poolId, sender, bundle));
+        (success,) =
+            address(hook).call(abi.encodeWithSelector(hook.LEGACY_BEFORE_SWAP_SELECTOR(), poolId, sender, bundle));
     }
 
     function callValidateAndConsume(

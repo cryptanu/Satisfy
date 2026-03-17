@@ -39,11 +39,12 @@ contract SatisfyHookTest {
 
     function testBeforeSwapConsumesProof() public {
         SatisfyTypes.ProofBundle memory bundle = _bundle(bytes32("hook1"), engine.currentEpoch());
+        bytes4 beforeSwapSelector = hook.LEGACY_BEFORE_SWAP_SELECTOR();
 
         bytes4 selector = hook.beforeSwap(POOL_ID, USER, bundle);
-        require(selector == hook.beforeSwap.selector, "hook should return selector");
+        require(selector == beforeSwapSelector, "hook should return selector");
 
-        (bool replay,) = address(hook).call(abi.encodeWithSelector(hook.beforeSwap.selector, POOL_ID, USER, bundle));
+        (bool replay,) = address(hook).call(abi.encodeWithSelector(beforeSwapSelector, POOL_ID, USER, bundle));
         require(!replay, "replay call should fail");
     }
 
@@ -57,9 +58,9 @@ contract SatisfyHookTest {
     function testBeforeSwapRejectsMissingPoolPolicy() public {
         SatisfyTypes.ProofBundle memory bundle = _bundle(bytes32("hook3"), engine.currentEpoch());
         bytes32 unknownPool = keccak256("UNKNOWN_POOL");
+        bytes4 beforeSwapSelector = hook.LEGACY_BEFORE_SWAP_SELECTOR();
 
-        (bool success,) =
-            address(hook).call(abi.encodeWithSelector(hook.beforeSwap.selector, unknownPool, USER, bundle));
+        (bool success,) = address(hook).call(abi.encodeWithSelector(beforeSwapSelector, unknownPool, USER, bundle));
         require(!success, "missing pool policy should fail");
     }
 
@@ -70,14 +71,15 @@ contract SatisfyHookTest {
 
     function testHookPauseBlocksBeforeSwap() public {
         SatisfyTypes.ProofBundle memory bundle = _bundle(bytes32("hook4"), engine.currentEpoch());
+        bytes4 beforeSwapSelector = hook.LEGACY_BEFORE_SWAP_SELECTOR();
 
         hook.setPaused(true);
-        (bool success,) = address(hook).call(abi.encodeWithSelector(hook.beforeSwap.selector, POOL_ID, USER, bundle));
+        (bool success,) = address(hook).call(abi.encodeWithSelector(beforeSwapSelector, POOL_ID, USER, bundle));
         require(!success, "paused hook should reject beforeSwap");
 
         hook.setPaused(false);
         bytes4 selector = hook.beforeSwap(POOL_ID, USER, bundle);
-        require(selector == hook.beforeSwap.selector, "unpaused hook should accept call");
+        require(selector == beforeSwapSelector, "unpaused hook should accept call");
     }
 
     function testSetPauseRequiresOwner() public {
