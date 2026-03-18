@@ -12,6 +12,10 @@ library SatisfyTypes {
         bytes condition;
     }
 
+    struct PredicateGroup {
+        Predicate[] predicates;
+    }
+
     struct Proof {
         bytes32 adapterId;
         bytes payload;
