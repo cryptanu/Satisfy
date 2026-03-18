@@ -25,6 +25,7 @@ interface ImportMetaEnv {
   readonly VITE_UNICHAIN_MAINNET_USER_ADDRESS?: string;
   readonly VITE_UNICHAIN_MAINNET_WORLD_ADAPTER_ID?: string;
   readonly VITE_UNICHAIN_MAINNET_SELF_ADAPTER_ID?: string;
+  readonly VITE_UNICHAIN_MAINNET_AGENT_ADAPTER_ID?: string;
   readonly VITE_UNICHAIN_MAINNET_DEPLOYMENT_ARTIFACT?: string;
 
   readonly VITE_UNICHAIN_SEPOLIA_POLICY_ENGINE_ADDRESS?: string;
@@ -36,12 +37,16 @@ interface ImportMetaEnv {
   readonly VITE_UNICHAIN_SEPOLIA_USER_ADDRESS?: string;
   readonly VITE_UNICHAIN_SEPOLIA_WORLD_ADAPTER_ID?: string;
   readonly VITE_UNICHAIN_SEPOLIA_SELF_ADAPTER_ID?: string;
+  readonly VITE_UNICHAIN_SEPOLIA_AGENT_ADAPTER_ID?: string;
   readonly VITE_UNICHAIN_SEPOLIA_DEPLOYMENT_ARTIFACT?: string;
 
   readonly VITE_WORLD_ADAPTER_ID?: string;
   readonly VITE_WORLD_PROOF_PAYLOAD?: string;
   readonly VITE_SELF_ADAPTER_ID?: string;
   readonly VITE_SELF_PROOF_PAYLOAD?: string;
+  readonly VITE_AGENT_ADAPTER_ID?: string;
+  readonly VITE_AGENTKIT_GATEWAY_URL?: string;
+  readonly VITE_AGENT_POLICY_CONTEXT?: string;
   readonly VITE_NULLIFIER?: string;
 }
 

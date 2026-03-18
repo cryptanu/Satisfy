@@ -2,6 +2,7 @@ import {useEffect, useMemo, useState} from 'react';
 import {motion} from 'motion/react';
 import {
   ArrowRight,
+  Bot,
   CheckCircle2,
   Fingerprint,
   LoaderCircle,
@@ -25,6 +26,7 @@ import {
 } from 'viem';
 import {policyEngineAbi, satisfyHookAbi, type ProofBundleInput} from './lib/contracts';
 import {
+  validateAgentLinkProofPayload,
   validateSelfAttestationProofPayload,
   validateWorldIdProofPayload,
 } from './lib/proofSchemas';
@@ -60,6 +62,19 @@ type DeploymentArtifact = {
   epoch?: string | number;
   worldAdapterId?: string;
   selfAdapterId?: string;
+  agentAdapterId?: string;
+};
+
+type AgentProofResponse = {
+  proofPayload: Hex;
+  nullifier: Hex;
+  humanIdHash: Hex;
+  issuedAt: number;
+  validUntil: number;
+  relayNonce: string;
+  discounted: boolean;
+  discountRemaining: number;
+  conditionPayload: Hex;
 };
 
 const env = import.meta.env;
@@ -188,6 +203,16 @@ export default function App() {
       payload: env.VITE_SELF_PROOF_PAYLOAD ?? '0x',
     },
   ]);
+  const [agentGatewayUrl, setAgentGatewayUrl] = useState(
+    env.VITE_AGENTKIT_GATEWAY_URL ?? 'http://127.0.0.1:8787',
+  );
+  const [agentAdapterId, setAgentAdapterId] = useState(
+    defaultPreset?.defaults.agentAdapterId ?? env.VITE_AGENT_ADAPTER_ID ?? '',
+  );
+  const [agentPolicyContext, setAgentPolicyContext] = useState(
+    env.VITE_AGENT_POLICY_CONTEXT ??
+      '0x0000000000000000000000000000000000000000000000000000000000000000',
+  );
 
   const [walletAddress, setWalletAddress] = useState('');
   const [statusMessage, setStatusMessage] = useState(
@@ -235,6 +260,18 @@ export default function App() {
       env.VITE_UNICHAIN_SEPOLIA_SELF_ADAPTER_ID,
       env.VITE_UNICHAIN_MAINNET_SELF_ADAPTER_ID,
       defaultPreset?.defaults.selfAdapterId,
+    ]
+      .filter((value): value is string => Boolean(value))
+      .map((value) => value.toLowerCase());
+    return new Set(known);
+  }, []);
+
+  const knownAgentAdapterIds = useMemo(() => {
+    const known = [
+      env.VITE_AGENT_ADAPTER_ID,
+      env.VITE_UNICHAIN_SEPOLIA_AGENT_ADAPTER_ID,
+      env.VITE_UNICHAIN_MAINNET_AGENT_ADAPTER_ID,
+      defaultPreset?.defaults.agentAdapterId,
     ]
       .filter((value): value is string => Boolean(value))
       .map((value) => value.toLowerCase());
@@ -316,6 +353,9 @@ export default function App() {
         }
         return next;
       });
+      if (artifact.agentAdapterId) {
+        setAgentAdapterId(artifact.agentAdapterId);
+      }
 
       setSuccess(`Loaded ${label} defaults from deployment artifact.`);
       return true;
@@ -366,6 +406,7 @@ export default function App() {
       }
       return next;
     });
+    setAgentAdapterId(preset.defaults.agentAdapterId ?? '');
 
     void applyDeploymentArtifact(
       preset.defaults.deploymentArtifact,
@@ -418,6 +459,8 @@ export default function App() {
         validateWorldIdProofPayload(proof.payload);
       } else if (knownSelfAdapterIds.has(normalizedAdapter)) {
         validateSelfAttestationProofPayload(proof.payload);
+      } else if (knownAgentAdapterIds.has(normalizedAdapter)) {
+        validateAgentLinkProofPayload(proof.payload);
       }
 
       return proof;
@@ -547,6 +590,92 @@ export default function App() {
       }
     } catch (error) {
       setError(error instanceof Error ? error.message : 'satisfies() failed');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const requestAgentProof = async () => {
+    setBusyAction('read');
+    setTxHash('');
+    try {
+      const resolvedAgent = normalizeAddress(
+        userAddress || walletAddress,
+        'Agent address (user or connected wallet)',
+      );
+      const resolvedAdapterId = normalizeHex(
+        agentAdapterId,
+        'Agent adapterId',
+        32,
+      );
+      const resolvedPolicyContext = normalizeHex(
+        agentPolicyContext,
+        'Agent policy context',
+        32,
+      );
+
+      const epochValue = Number(parseUint(epoch, 'Epoch'));
+      if (!Number.isSafeInteger(epochValue)) {
+        throw new Error('Epoch is too large for request payload');
+      }
+
+      const gateway = agentGatewayUrl.trim().replace(/\/+$/, '');
+      if (!gateway) {
+        throw new Error('AgentKit gateway URL is required');
+      }
+
+      const response = await fetch(`${gateway}/v1/agent-link/proof`, {
+        method: 'POST',
+        headers: {'content-type': 'application/json'},
+        body: JSON.stringify({
+          agentAddress: resolvedAgent,
+          policyId: parseUint(policyId, 'Policy ID').toString(),
+          epoch: epochValue,
+          policyContext: resolvedPolicyContext,
+        }),
+      });
+
+      if (!response.ok) {
+        let detail = `Gateway request failed (${response.status})`;
+        try {
+          const body = (await response.json()) as {error?: string};
+          if (body.error) {
+            detail = body.error;
+          }
+        } catch {
+          // No JSON body available.
+        }
+        throw new Error(detail);
+      }
+
+      const payload = (await response.json()) as AgentProofResponse;
+      const proofPayload = normalizeHex(payload.proofPayload, 'Agent proof payload');
+      const nullifierHex = normalizeHex(payload.nullifier, 'Agent nullifier', 32);
+      validateAgentLinkProofPayload(proofPayload);
+
+      setProofs((current) => {
+        const index = current.findIndex(
+          (proof) => proof.adapterId.toLowerCase() === resolvedAdapterId.toLowerCase(),
+        );
+        if (index >= 0) {
+          return current.map((proof, i) =>
+            i === index ? {adapterId: resolvedAdapterId, payload: proofPayload} : proof,
+          );
+        }
+        return [
+          ...current,
+          {
+            adapterId: resolvedAdapterId,
+            payload: proofPayload,
+          },
+        ];
+      });
+      setNullifier(nullifierHex);
+      setSuccess(
+        `Agent proof issued. Relay nonce ${payload.relayNonce}, discount remaining ${payload.discountRemaining}.`,
+      );
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Agent proof request failed');
     } finally {
       setBusyAction(null);
     }
@@ -863,6 +992,55 @@ export default function App() {
                       Randomize
                     </button>
                   </div>
+                </div>
+
+                <div className="border border-white/10 bg-black/20 p-4 space-y-3">
+                  <h3 className="font-display text-xl inline-flex items-center gap-2">
+                    <Bot className="w-5 h-5 text-[var(--color-neon)]" />
+                    Agent Proof Gateway
+                  </h3>
+                  <p className="text-sm text-gray-400">
+                    Fetch a signed <code>AgentLinkProofV1</code> payload from the AgentKit gateway,
+                    then auto-fill adapter payload + nullifier.
+                  </p>
+                  <div className="grid md:grid-cols-3 gap-3">
+                    <label className="text-xs font-mono text-gray-400">
+                      Gateway URL
+                      <input
+                        value={agentGatewayUrl}
+                        onChange={(event) => setAgentGatewayUrl(event.target.value)}
+                        className="mt-2 w-full px-3 py-2 bg-black/40 border border-white/15 focus:border-[var(--color-neon)] outline-none"
+                      />
+                    </label>
+                    <label className="text-xs font-mono text-gray-400">
+                      Agent adapterId (bytes32)
+                      <input
+                        value={agentAdapterId}
+                        onChange={(event) => setAgentAdapterId(event.target.value)}
+                        className="mt-2 w-full px-3 py-2 bg-black/40 border border-white/15 focus:border-[var(--color-neon)] outline-none"
+                      />
+                    </label>
+                    <label className="text-xs font-mono text-gray-400">
+                      Policy context (bytes32)
+                      <input
+                        value={agentPolicyContext}
+                        onChange={(event) => setAgentPolicyContext(event.target.value)}
+                        className="mt-2 w-full px-3 py-2 bg-black/40 border border-white/15 focus:border-[var(--color-neon)] outline-none"
+                      />
+                    </label>
+                  </div>
+                  <button
+                    onClick={requestAgentProof}
+                    disabled={busyAction !== null}
+                    className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/15 text-sm font-mono inline-flex items-center gap-2 disabled:opacity-60"
+                  >
+                    {busyAction === 'read' ? (
+                      <LoaderCircle className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Bot className="w-4 h-4" />
+                    )}
+                    Fetch AgentLink Proof
+                  </button>
                 </div>
 
                 <div className="flex flex-wrap gap-3">

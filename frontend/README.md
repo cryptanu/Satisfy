@@ -12,7 +12,9 @@ React + Vite frontend for Satisfy policy checks and hook execution.
 - Validate payload schemas for:
   - `WorldIdProofV1`
   - `SelfAttestationProofV1`
+  - `AgentLinkProofV1`
 - Optionally auto-load addresses/IDs from deployment artifacts
+- Agent Console to fetch V2 `AgentLink` proof payloads from gateway API
 
 ## Setup
 
@@ -45,6 +47,9 @@ Then selecting `Unichain Sepolia` mode loads addresses/IDs from the artifact.
 - `VITE_UNICHAIN_MAINNET_RPC_URL`
 - `VITE_UNICHAIN_SEPOLIA_DEPLOYMENT_ARTIFACT`
 - `VITE_UNICHAIN_MAINNET_DEPLOYMENT_ARTIFACT`
+- `VITE_AGENTKIT_GATEWAY_URL`
+- `VITE_AGENT_POLICY_CONTEXT`
+- `VITE_AGENT_ADAPTER_ID`
 
 Per-network manual overrides are still supported via policy engine/hook/pool/policy env keys.
 

@@ -25,6 +25,20 @@ const selfProofSchema = [
   },
 ] as const;
 
+const agentLinkProofSchema = [
+  {
+    type: 'tuple',
+    components: [
+      {name: 'humanIdHash', type: 'bytes32'},
+      {name: 'issuedAt', type: 'uint64'},
+      {name: 'validUntil', type: 'uint64'},
+      {name: 'relayNonce', type: 'uint256'},
+      {name: 'sourceBridgeId', type: 'bytes32'},
+      {name: 'signature', type: 'bytes'},
+    ],
+  },
+] as const;
+
 export type WorldIdProofV1 = {
   root: bigint;
   nullifierHash: bigint;
@@ -49,6 +63,15 @@ export type SelfAttestationProofV1 = {
   context: Hex;
 };
 
+export type AgentLinkProofV1 = {
+  humanIdHash: Hex;
+  issuedAt: bigint;
+  validUntil: bigint;
+  relayNonce: bigint;
+  sourceBridgeId: Hex;
+  signature: Hex;
+};
+
 export function decodeWorldIdProofPayload(payload: Hex): WorldIdProofV1 {
   const [decoded] = decodeAbiParameters(worldProofSchema, payload);
   return decoded;
@@ -67,6 +90,15 @@ export function encodeSelfAttestationProofPayload(proof: SelfAttestationProofV1)
   return encodeAbiParameters(selfProofSchema, [proof]);
 }
 
+export function decodeAgentLinkProofPayload(payload: Hex): AgentLinkProofV1 {
+  const [decoded] = decodeAbiParameters(agentLinkProofSchema, payload);
+  return decoded;
+}
+
+export function encodeAgentLinkProofPayload(proof: AgentLinkProofV1): Hex {
+  return encodeAbiParameters(agentLinkProofSchema, [proof]);
+}
+
 export function validateWorldIdProofPayload(payload: Hex): void {
   const decoded = decodeWorldIdProofPayload(payload);
   if (decoded.validUntil <= decoded.issuedAt) {
@@ -81,5 +113,18 @@ export function validateSelfAttestationProofPayload(payload: Hex): void {
   }
   if (decoded.context === '0x0000000000000000000000000000000000000000000000000000000000000000') {
     throw new Error('SelfAttestationProofV1 context cannot be zero');
+  }
+}
+
+export function validateAgentLinkProofPayload(payload: Hex): void {
+  const decoded = decodeAgentLinkProofPayload(payload);
+  if (decoded.humanIdHash === '0x0000000000000000000000000000000000000000000000000000000000000000') {
+    throw new Error('AgentLinkProofV1 humanIdHash cannot be zero');
+  }
+  if (decoded.validUntil <= decoded.issuedAt) {
+    throw new Error('AgentLinkProofV1 invalid time range: validUntil must be > issuedAt');
+  }
+  if (decoded.signature === '0x' || decoded.signature.length < 132) {
+    throw new Error('AgentLinkProofV1 signature is invalid');
   }
 }
