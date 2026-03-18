@@ -1,0 +1,30 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model AgentIdentity {
+  id                  Int      @id @default(autoincrement())
+  agentAddress        String   @unique
+  humanIdHash         String
+  discountUsesConsumed Int     @default(0)
+  relayNonce          BigInt   @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model ProofIssue {
+  id           Int      @id @default(autoincrement())
+  agentAddress String
+  humanIdHash  String
+  policyId     String
+  epoch        Int
+  nullifier    String
+  expiresAt    DateTime
+  discounted   Boolean
+  createdAt    DateTime @default(now())
+}

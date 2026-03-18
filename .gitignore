@@ -17,6 +17,11 @@ frontend/.env.local
 # Frontend artifacts
 frontend/node_modules/
 frontend/dist/
+services/agentkit-gateway/node_modules/
+services/agentkit-gateway/dist/
+services/agentkit-gateway/*.db
+services/agentkit-gateway/prisma/*.db
+services/agentkit-gateway/test/*.js
 
 # Deployment artifacts
 deployments/
