@@ -178,6 +178,18 @@ source .env.unichain
 UNICHAIN_NETWORK=sepolia ./script/deploy_unichain.sh
 ```
 
+## V2 AgentKit Deployment (Parallel)
+
+Deploys V2 policy path with `AgentLinkAdapter` and DNF policy groups while leaving V1 unchanged:
+
+```bash
+cp script/.env.unichain.example .env.unichain
+source .env.unichain
+UNICHAIN_NETWORK=sepolia ./script/deploy_unichain_v2.sh
+```
+
+Runbook: [`docs/V2_AGENTKIT_RUNBOOK.md`](docs/V2_AGENTKIT_RUNBOOK.md)
+
 Supported networks:
 
 - `sepolia` (`chainId=1301`)

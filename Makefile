@@ -1,4 +1,4 @@
-.PHONY: build test e2e e2e-external deploy-unichain-sepolia deploy-unichain-mainnet deploy-reactive-pipeline unichain-smoke relay-self-mock reactive-worker reactive-executor sync-frontend-artifact ci-real-data ci-unichain-smoke build-realdata-fixture frontend-install frontend-dev frontend-build fmt clean
+.PHONY: build test e2e e2e-external deploy-unichain-sepolia deploy-unichain-mainnet deploy-unichain-v2-sepolia deploy-unichain-v2-mainnet deploy-reactive-pipeline unichain-smoke unichain-smoke-v2 relay-self-mock reactive-worker reactive-executor sync-frontend-artifact ci-real-data ci-unichain-smoke build-realdata-fixture frontend-install frontend-dev frontend-build backend-install backend-dev backend-test backend-build fmt clean
 
 build:
 	forge build --offline
@@ -18,11 +18,20 @@ deploy-unichain-sepolia:
 deploy-unichain-mainnet:
 	UNICHAIN_NETWORK=mainnet ./script/deploy_unichain.sh
 
+deploy-unichain-v2-sepolia:
+	UNICHAIN_NETWORK=sepolia ./script/deploy_unichain_v2.sh
+
+deploy-unichain-v2-mainnet:
+	UNICHAIN_NETWORK=mainnet ./script/deploy_unichain_v2.sh
+
 deploy-reactive-pipeline:
 	./script/deploy_reactive_pipeline.sh deployments/unichain-sepolia.json
 
 unichain-smoke:
 	./script/unichain_smoke.sh deployments/unichain-sepolia.json
+
+unichain-smoke-v2:
+	./script/unichain_smoke.sh deployments/unichain-sepolia-v2-agentkit.json
 
 relay-self-mock:
 	./script/relay_self_attestation_mock.sh
@@ -53,8 +62,20 @@ frontend-dev:
 frontend-build:
 	npm --prefix frontend run build
 
+backend-install:
+	npm --prefix services/agentkit-gateway install
+
+backend-dev:
+	npm --prefix services/agentkit-gateway run dev
+
+backend-test:
+	npm --prefix services/agentkit-gateway test
+
+backend-build:
+	npm --prefix services/agentkit-gateway run build
+
 fmt:
 	forge fmt
 
 clean:
-	rm -rf out cache frontend/dist
+	rm -rf out cache frontend/dist services/agentkit-gateway/dist

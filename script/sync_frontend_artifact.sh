@@ -23,10 +23,10 @@ cp "$DEPLOYMENT_FILE" "$DEST_DIR/$BASENAME"
 
 echo "Copied deployment artifact to frontend/public/deployments/$BASENAME"
 
-if [[ "$BASENAME" == "unichain-sepolia.json" ]]; then
+if [[ "$BASENAME" == unichain-sepolia*.json ]]; then
   echo "Set in frontend/.env.local:"
   echo "VITE_UNICHAIN_SEPOLIA_DEPLOYMENT_ARTIFACT=/deployments/$BASENAME"
-elif [[ "$BASENAME" == "unichain-mainnet.json" ]]; then
+elif [[ "$BASENAME" == unichain-mainnet*.json ]]; then
   echo "Set in frontend/.env.local:"
   echo "VITE_UNICHAIN_MAINNET_DEPLOYMENT_ARTIFACT=/deployments/$BASENAME"
 fi

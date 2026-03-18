@@ -37,6 +37,25 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+  backend-gateway:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/agentkit-gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: services/agentkit-gateway/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Run unit tests
+        run: npm run test
+      - name: Build gateway
+        run: npm run build
+
   real-data-replay:
     runs-on: ubuntu-latest
     if: ${{ secrets.REALDATA_FIXTURE_JSON_B64 != '' }}
@@ -63,6 +82,7 @@ jobs:
           UNICHAIN_SMOKE_SELF_ATTESTATION_PAYLOAD: ${{ secrets.UNICHAIN_SMOKE_SELF_ATTESTATION_PAYLOAD }}
           UNICHAIN_SMOKE_SELF_ATTESTATION_SIGNATURE: ${{ secrets.UNICHAIN_SMOKE_SELF_ATTESTATION_SIGNATURE }}
           UNICHAIN_SMOKE_SELF_PROOF_PAYLOAD: ${{ secrets.UNICHAIN_SMOKE_SELF_PROOF_PAYLOAD }}
+          UNICHAIN_SMOKE_AGENT_PROOF_PAYLOAD: ${{ secrets.UNICHAIN_SMOKE_AGENT_PROOF_PAYLOAD }}
           UNICHAIN_SMOKE_RELAYER_PK: ${{ secrets.UNICHAIN_SMOKE_RELAYER_PK }}
           UNICHAIN_SMOKE_EXPECT_SATISFIES: ${{ secrets.UNICHAIN_SMOKE_EXPECT_SATISFIES }}
         run: ./script/ci_unichain_smoke.sh

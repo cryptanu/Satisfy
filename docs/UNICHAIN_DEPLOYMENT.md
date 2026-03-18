@@ -46,6 +46,13 @@ source .env.unichain
 UNICHAIN_NETWORK=sepolia ./script/deploy_unichain.sh
 ```
 
+V2 parallel deploy with AgentKit adapter + DNF policy:
+
+```bash
+source .env.unichain
+UNICHAIN_NETWORK=sepolia ./script/deploy_unichain_v2.sh
+```
+
 ## 3. What Gets Deployed
 
 - `SatisfyPolicyEngine`

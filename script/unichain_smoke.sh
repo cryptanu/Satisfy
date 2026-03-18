@@ -28,6 +28,7 @@ ENGINE="$(jq -r '.policyEngine' "$DEPLOYMENT_FILE")"
 HOOK="$(jq -r '.hook' "$DEPLOYMENT_FILE")"
 WORLD_ADAPTER_ID="$(jq -r '.worldAdapterId' "$DEPLOYMENT_FILE")"
 SELF_ADAPTER_ID="$(jq -r '.selfAdapterId' "$DEPLOYMENT_FILE")"
+AGENT_ADAPTER_ID="$(jq -r '.agentAdapterId // empty' "$DEPLOYMENT_FILE")"
 SELF_REGISTRY="$(jq -r '.selfRegistry' "$DEPLOYMENT_FILE")"
 AUTOMATION="$(jq -r '.automationModule' "$DEPLOYMENT_FILE")"
 TIMELOCK="$(jq -r '.timelock' "$DEPLOYMENT_FILE")"
@@ -46,6 +47,7 @@ TIMELOCK_EXECUTOR="$(jq -r '.governance.timelock.executor' "$DEPLOYMENT_FILE")"
 SMOKE_USER="${SMOKE_USER:-${SATISFY_USER:-}}"
 WORLD_PROOF_PAYLOAD="${WORLD_PROOF_PAYLOAD:-}"
 SELF_PROOF_PAYLOAD="${SELF_PROOF_PAYLOAD:-}"
+AGENT_PROOF_PAYLOAD="${AGENT_PROOF_PAYLOAD:-}"
 NULLIFIER="${NULLIFIER:-$(cast keccak "smoke-nullifier-$(date +%s)")}" 
 EXPECT_SATISFIES="${EXPECT_SATISFIES:-true}"
 
@@ -161,7 +163,25 @@ if [[ -n "$SELF_ATTESTATION_PAYLOAD" || -n "$SELF_ATTESTATION_SIGNATURE" ]]; the
     --private-key "$RELAYER_PK" >/dev/null
 fi
 
-if [[ -n "$SMOKE_USER" && -n "$WORLD_PROOF_PAYLOAD" && -n "$SELF_PROOF_PAYLOAD" ]]; then
+if [[ -n "$SMOKE_USER" && -n "$AGENT_ADAPTER_ID" && -n "$AGENT_PROOF_PAYLOAD" ]]; then
+  PROOFS="[(${AGENT_ADAPTER_ID},${AGENT_PROOF_PAYLOAD})]"
+  BUNDLE="(${PROOFS},${NULLIFIER},${EPOCH})"
+
+  log "Calling satisfies() with V2 agent proof bundle"
+  SATISFIED=$(call_view "$ENGINE" "satisfies(uint256,address,((bytes32,bytes)[],bytes32,uint64))(bool)" "$POLICY_ID" "$SMOKE_USER" "$BUNDLE")
+
+  if [[ "$EXPECT_SATISFIES" == "true" && "$SATISFIED" != "true" ]]; then
+    echo "satisfies() expected true but got: $SATISFIED" >&2
+    exit 1
+  fi
+
+  if [[ "$EXPECT_SATISFIES" == "false" && "$SATISFIED" != "false" ]]; then
+    echo "satisfies() expected false but got: $SATISFIED" >&2
+    exit 1
+  fi
+
+  log "satisfies() => $SATISFIED"
+elif [[ -n "$SMOKE_USER" && -n "$WORLD_PROOF_PAYLOAD" && -n "$SELF_PROOF_PAYLOAD" ]]; then
   PROOFS="[(${WORLD_ADAPTER_ID},${WORLD_PROOF_PAYLOAD}),(${SELF_ADAPTER_ID},${SELF_PROOF_PAYLOAD})]"
   BUNDLE="(${PROOFS},${NULLIFIER},${EPOCH})"
 
@@ -180,7 +200,9 @@ if [[ -n "$SMOKE_USER" && -n "$WORLD_PROOF_PAYLOAD" && -n "$SELF_PROOF_PAYLOAD" 
 
   log "satisfies() => $SATISFIED"
 else
-  log "Skipped satisfies() check. Set SMOKE_USER, WORLD_PROOF_PAYLOAD, and SELF_PROOF_PAYLOAD to enable it."
+  log "Skipped satisfies() check. Provide either:"
+  log "- SMOKE_USER + AGENT_PROOF_PAYLOAD (with artifact agentAdapterId), or"
+  log "- SMOKE_USER + WORLD_PROOF_PAYLOAD + SELF_PROOF_PAYLOAD."
 fi
 
 log "Smoke checks passed"
